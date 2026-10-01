@@ -21,21 +21,7 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
   String _query = '';
   bool _isForwarding = false; // blocks double taps while forwarding
 
-  // Same fixed avatar palette style used across the app
-  static const List<Color> _avatarPalette = [
-    Color(0xFF3CB67C),
-    Color(0xFF6C63FF),
-    Color(0xFFFF7A59),
-    Color(0xFF3B9AE1),
-    Color(0xFFE55C8A),
-    Color(0xFFF2B84B),
-  ];
-
-  Color _colorForName(String name) {
-    if (name.isEmpty) return _avatarPalette.first;
-    final index = name.codeUnitAt(0) % _avatarPalette.length;
-    return _avatarPalette[index];
-  }
+  Color _colorForName(String name) => AppColors.avatarFor(name);
 
   @override
   void dispose() {
@@ -46,7 +32,7 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
   @override
   Widget build(BuildContext context) {
     final usersAsync = ref.watch(allUsersProvider);
-    final p = ref.watch(themeProvider).preset;
+    final p = ref.watch(themeProvider).palette;
 
     return Scaffold(
       backgroundColor: p.background,
@@ -78,7 +64,7 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
                 decoration: BoxDecoration(
                   color: p.surface,
                   borderRadius: BorderRadius.circular(14),
-                  boxShadow: const [
+                  boxShadow: [
                     BoxShadow(color: AppColors.shadow, blurRadius: 10, offset: Offset(0, 4)),
                   ],
                 ),
@@ -126,7 +112,7 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
                       decoration: BoxDecoration(
                         color: p.surface,
                         borderRadius: BorderRadius.circular(18),
-                        boxShadow: const [
+                        boxShadow: [
                           BoxShadow(color: AppColors.shadow, blurRadius: 14, offset: Offset(0, 6)),
                         ],
                       ),
@@ -229,7 +215,7 @@ class _EmptyState extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final p = ref.watch(themeProvider).preset;
+    final p = ref.watch(themeProvider).palette;
 
     return Center(
       child: Column(

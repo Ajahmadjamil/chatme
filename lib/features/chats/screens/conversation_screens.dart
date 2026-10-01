@@ -7,15 +7,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/glass.dart';
 import '../../../core/theme/theme_provider.dart';
 import '../../../core/utils/app_dialogs.dart';
 import '../../../core/utils/app_haptics.dart';
 import '../../Auto Clear Chat/provider.dart';
 import '../../Auto Clear Chat/widget/auto_clear_sheet.dart';
-import '../../Home/home_view.dart';
+import '../../chat lock/chat_lock_actions.dart';
 import '../../chat lock/provider.dart';
-import '../../chat lock/screens/enter_pin_view.dart';
-import '../../chat lock/screens/set_pin_view.dart';
 import '../../voice/provider/voice_recorder_provider.dart';
 import '../../voice/services/voice_recorder.dart';
 import '../../voice/widget/voice_record_widgets.dart';
@@ -64,6 +64,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   String get _currentUserId => Supabase.instance.client.auth.currentUser!.id;
   String? _resolvedOtherUserId;
   String? _resolvedAvatarUrl;
+  dynamic _replyingTo; // MessageModel being replied to
 
   String? get _peerUserId => widget.otherUserId ?? _resolvedOtherUserId;
   String? get _peerAvatarUrl => widget.avatarUrl ?? _resolvedAvatarUrl;
@@ -190,10 +191,10 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
 
   // AppBar shown while messages are selected for forwarding
   PreferredSizeWidget _buildSelectionAppBar() {
-    final p = ref.read(themeProvider).preset;
+    final p = ref.read(themeProvider).palette;
     return AppBar(
       backgroundColor: p.header,
-      foregroundColor: Colors.white,
+      foregroundColor: AppColors.headerForeground,
       leading: IconButton(
         icon: const Icon(Icons.close),
         onPressed: _exitSelectionMode,
@@ -332,7 +333,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   }
   // First step: "Share current location" or "Share live location"
   void _showLocationOptionsSheet() {
-    final p = ref.read(themeProvider).preset;
+    final p = ref.read(themeProvider).palette;
     showModalBottomSheet(
       context: context,
       backgroundColor: p.surface,
@@ -381,7 +382,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
 // Second step (only for live location): pick a duration, then press Send
   void _showLiveLocationDurationSheet() {
     int? selectedMinutes; // holds the user's pick until they press Send
-    final p = ref.read(themeProvider).preset;
+    final p = ref.read(themeProvider).palette;
 
     showModalBottomSheet(
       context: context,
@@ -495,7 +496,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     required String label,
     required VoidCallback onTap,
   }) {
-    final p = ref.read(themeProvider).preset;
+    final p = ref.read(themeProvider).palette;
     return InkWell(
       onTap: () {
         AppHaptics.tap();
@@ -522,7 +523,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   }
   // The actual panel content (grid of options)
   Widget _buildAttachPanel() {
-    final p = ref.read(themeProvider).preset;
+    final p = ref.read(themeProvider).palette;
     return Container(
       color: p.surface,
       padding: const EdgeInsets.symmetric(vertical: 20),
@@ -581,86 +582,138 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
 
-    setState(() => _isSending = true);
+    final replyId = _replyingTo?.id as String?;
+
+    setState(() {
+      _isSending = true;
+      _replyingTo = null;
+    });
     AppHaptics.messageSent();
     _messageController.clear();
 
     try {
       await ref.read(chatActionsProvider).sendMessage(
-        chatId: widget.chatId,
-        content: text,
-      );
+            chatId: widget.chatId,
+            content: text,
+            replyToId: replyId,
+          );
     } finally {
       if (mounted) setState(() => _isSending = false);
     }
   }
-  // Long press on my message: ask what to do
-  Future<void> _showMessageOptions(dynamic msg) async {
+
+  void _startReply(dynamic msg, {String? senderName}) {
+    AppHaptics.select();
+    setState(() {
+      _replyingTo = msg;
+      _showAttachPanel = false;
+    });
+  }
+
+  void _cancelReply() {
+    setState(() => _replyingTo = null);
+  }
+
+  String _replyAuthorName(dynamic msg, Map<String, String> memberNames) {
+    if (msg.senderId == _currentUserId) return 'You';
+    if (widget.isGroup) {
+      return memberNames[msg.senderId] ?? 'Member';
+    }
+    return widget.otherUserName;
+  }
+
+  String _replyPreviewFor(dynamic msg) {
+    switch (msg.messageType as String?) {
+      case 'image':
+        return 'Photo';
+      case 'voice':
+        return 'Voice message';
+      case 'file':
+        final name = (msg.content as String?)?.trim() ?? '';
+        return name.isEmpty ? 'File' : name;
+      case 'location':
+        return 'Location';
+      default:
+        final t = (msg.content as String?)?.trim() ?? '';
+        return t.isEmpty ? 'Message' : t;
+    }
+  }
+  // Long press: Reply for everyone; Edit/Delete only on my messages
+  Future<void> _showMessageOptions(
+    dynamic msg, {
+    String? senderName,
+  }) async {
+    if (msg.messageType == 'system') return;
+
     AppHaptics.medium();
+    final isMine = msg.senderId == _currentUserId;
 
     final action = await AppDialogs.messageOptions(
       context,
-      canEdit: msg.messageType == 'text', // voice and image can't be edited
+      canReply: true,
+      canEdit: isMine && msg.messageType == 'text',
+      canDelete: isMine,
     );
     if (action == null || !mounted) return;
 
-    if (action == MessageAction.edit) {
-      await _editMessage(msg);
-    } else {
-      await _deleteMessage(msg);
+    switch (action) {
+      case MessageAction.reply:
+        _startReply(msg, senderName: senderName);
+      case MessageAction.edit:
+        await _editMessage(msg);
+      case MessageAction.delete:
+        await _deleteMessage(msg);
     }
   }
 
   Future<void> _handleChatLockToggle(bool isLocked) async {
-    final notifier = ref.read(chatLockProvider.notifier);
-
     if (isLocked) {
-      final success = await AppNav.push<bool>(
-      context,
-      const EnterPinScreen(
-            title: 'Unlock Chat',
-            subtitle: 'Enter your PIN to remove the lock on this chat.',
-          ),
+      final ok = await ChatLockActions.removeLock(
+        context,
+        ref,
+        chatId: widget.chatId,
       );
-      if (success == true) {
-        await notifier.removeLock(widget.chatId);
-        if (mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(const SnackBar(content: Text('Chat unlocked')));
-        }
+      if (ok && mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Chat unlocked')));
       }
       return;
     }
 
-    final hasPin = await notifier.hasPinSet();
-    if (!hasPin) {
-      if (!mounted) return;
-      final created = await AppNav.push<bool>(
+    final ok = await ChatLockActions.lockChat(
       context,
-      const SetPinScreen(),
-      );
-      if (created != true) return;
-    }
-
-    await notifier.lockChat(widget.chatId);
-    // Also mark it as unlocked-now, so it doesn't immediately ask for the
-    // PIN again on this same screen (since I'm already inside the chat)
-    notifier.markUnlocked(widget.chatId);
-
-    if (mounted) {
+      ref,
+      chatId: widget.chatId,
+    );
+    if (ok && mounted) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Chat locked')));
     }
   }
   Future<void> _pickChatWallpaper() async {
     final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    final pickedFile = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 80,
+    );
     if (pickedFile == null) return;
 
-    await ref.read(chatWallpaperProvider.notifier).setWallpaper(
-      widget.chatId,
-      File(pickedFile.path),
-    );
+    try {
+      await ref
+          .read(chatWallpaperProvider(widget.chatId).notifier)
+          .setWallpaper(File(pickedFile.path));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Wallpaper updated for everyone')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not set wallpaper: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _editMessage(dynamic msg) async {
@@ -691,7 +744,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   @override
   Widget build(BuildContext context) {
     final messagesAsync = ref.watch(messagesProvider(widget.chatId));
-    final p = ref.watch(themeProvider).preset;
+    final p = ref.watch(themeProvider).palette;
     // Auto-stop when the recording limit is reached
     ref.listen<VoiceRecorderState>(voiceRecorderProvider, (prev, next) {
       if (next.isRecording && next.seconds >= _maxRecordSeconds) {
@@ -703,13 +756,23 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
         ? ref.watch(groupMembersProvider(widget.chatId))
         : null;
     final isLocked = ref.watch(chatLockProvider).lockedChatIds.contains(widget.chatId);
-    final wallpaperPath = ref.watch(chatWallpaperProvider)[widget.chatId];
-    return Scaffold(
-      backgroundColor: p.chatBackground,
-      appBar: _isSelectionMode ? _buildSelectionAppBar() :  AppBar(
-        backgroundColor: p.header,
-        foregroundColor: Colors.white,
-        elevation: 1,
+    final wallpaperUrl = ref.watch(chatWallpaperProvider(widget.chatId)).value;
+    final glass = AppColors.isGlass && wallpaperUrl == null;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return GlassAtmosphere(
+      child: Scaffold(
+      backgroundColor: glass ? Colors.transparent : p.chatBackground,
+      extendBodyBehindAppBar: glass,
+      appBar: _isSelectionMode ? _buildSelectionAppBar() : AppBar(
+        backgroundColor: glass ? Colors.transparent : p.header,
+        foregroundColor: AppColors.headerForeground,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+        flexibleSpace: glass
+            ? const GlassImmersiveBar()
+            : null,
         titleSpacing: 0,
         title: InkWell(
           onTap: widget.isGroup ? null : _openPeerProfile,
@@ -720,11 +783,11 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                 avatarUrl: _peerAvatarUrl,
                 radius: 18,
                 backgroundColor: widget.isGroup
-                    ? Colors.teal.shade100
-                    : avatarColorFor(widget.otherUserName),
+                    ? AppColors.secondary
+                    : AppColors.avatarFor(widget.otherUserName).withValues(alpha: 0.2),
                 foregroundColor: widget.isGroup
-                    ? Colors.teal
-                    : Colors.white,
+                    ? AppColors.primary
+                    : AppColors.avatarFor(widget.otherUserName),
                 fallbackIcon: widget.isGroup ? Icons.group : null,
               ),
               const SizedBox(width: 10),
@@ -736,19 +799,29 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                     Text(
                       widget.otherUserName,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.headerForeground,
+                      ),
                     ),
                     if (widget.isGroup && groupMembersAsync != null && groupMembersAsync.hasValue)
                       Text(
                         groupMembersAsync.value!.values.join(', '),
                         overflow: TextOverflow.ellipsis,
                         maxLines: 1,
-                        style: const TextStyle(fontSize: 12, color: Colors.white70),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.headerForeground.withValues(alpha: 0.75),
+                        ),
                       )
                     else if (!widget.isGroup)
-                      const Text(
+                      Text(
                         'tap for contact info',
-                        style: TextStyle(fontSize: 12, color: Colors.white70),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.headerForeground.withValues(alpha: 0.75),
+                        ),
                       ),
                   ],
                 ),
@@ -758,7 +831,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
         ),
         actions: [
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, color: Colors.white),
+            icon: Icon(Icons.more_vert, color: AppColors.headerForeground),
             onSelected: (value) {
               if (value == 'toggle_lock') {
                 _handleChatLockToggle(isLocked);
@@ -767,7 +840,9 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
               } else if (value == 'change_wallpaper') {
                 _pickChatWallpaper();
               } else if (value == 'remove_wallpaper') {
-                ref.read(chatWallpaperProvider.notifier).removeWallpaper(widget.chatId);
+                ref
+                    .read(chatWallpaperProvider(widget.chatId).notifier)
+                    .removeWallpaper();
               }
             },
             itemBuilder: (context) => [
@@ -784,7 +859,6 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                   ],
                 ),
               ),
-
               const PopupMenuItem(
                 value: 'auto_clear',
                 child: Row(
@@ -795,8 +869,6 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                   ],
                 ),
               ),
-
-              // NEW: Change wallpaper
               const PopupMenuItem(
                 value: 'change_wallpaper',
                 child: Row(
@@ -807,9 +879,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                   ],
                 ),
               ),
-
-              // NEW: Remove wallpaper
-              if (wallpaperPath != null)
+              if (wallpaperUrl != null)
                 const PopupMenuItem(
                   value: 'remove_wallpaper',
                   child: Row(
@@ -822,23 +892,27 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                 ),
             ],
           ),
-            ],
-          ),
+        ],
+      ),
       body: Stack(
-        children:[
-          if (wallpaperPath != null)
-        Positioned.fill(
-    child: Image.file(
-    File(wallpaperPath),
-    fit: BoxFit.cover,
-    ),
-    ),
-    if (wallpaperPath != null)
-    Positioned.fill(
-    // Soft white wash so text bubbles stay readable over any photo
-    child: Container(color: Colors.white.withOpacity(0.45)),
-    ),
-        Column(
+        children: [
+          if (wallpaperUrl != null) ...[
+            Positioned.fill(
+              child: Image.network(
+                wallpaperUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              ),
+            ),
+            Positioned.fill(
+              child: ColoredBox(
+                color: isDark
+                    ? Colors.black.withValues(alpha: 0.42)
+                    : Colors.white.withValues(alpha: 0.40),
+              ),
+            ),
+          ],
+          Column(
           children: [
             Expanded(
               child: messagesAsync.when(
@@ -865,14 +939,22 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                       int realIndex = sortedMessages.length - 1 - index;
                       final msg = sortedMessages[realIndex];
                       final isMe = msg.senderId == _currentUserId;
-        
+
                       String? senderName;
                       if (widget.isGroup && !isMe) {
                         senderName = memberNames[msg.senderId];
                       }
-        
-                      // message bubble style is untouched, only the screen
-                      // around it has been polished
+
+                      dynamic replied;
+                      if (msg.replyToId != null) {
+                        for (final m in sortedMessages) {
+                          if (m.id == msg.replyToId) {
+                            replied = m;
+                            break;
+                          }
+                        }
+                      }
+
                       return MessageBubble(
                         key: ValueKey(msg.id),
                         text: msg.content,
@@ -883,11 +965,25 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                         messageType: msg.messageType,
                         mediaUrl: msg.mediaUrl,
                         durationSeconds: msg.durationSeconds,
-                        onStopLiveLocation: isMe ? () => _stopLiveLocation(msg.id) : null,
-                        onLongPress: isMe ? () => _showMessageOptions(msg) : null,
+                        onStopLiveLocation:
+                            isMe ? () => _stopLiveLocation(msg.id) : null,
+                        onLongPress: msg.messageType == 'system'
+                            ? null
+                            : () => _showMessageOptions(
+                                  msg,
+                                  senderName: senderName,
+                                ),
+                        onReply: msg.messageType == 'system'
+                            ? null
+                            : () => _startReply(msg, senderName: senderName),
                         selectionMode: _isSelectionMode,
                         isSelected: _selectedMessageIds.contains(msg.id),
                         onToggleSelect: () => _toggleMessageSelection(msg.id),
+                        replyToName: replied == null
+                            ? null
+                            : _replyAuthorName(replied, memberNames),
+                        replyToText: replied?.content as String?,
+                        replyToType: replied?.messageType as String?,
                       );
                     },
                   );
@@ -902,6 +998,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (_replyingTo != null) _buildReplyBar(),
                   // Attach panel smoothly grows above the input bar
                   AnimatedSize(
                     duration: const Duration(milliseconds: 220),
@@ -915,7 +1012,9 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                     children: [
                       Container(
                         width: double.infinity,
-                        color: p.surface,
+                        color: AppColors.isGlass
+                            ? Colors.transparent
+                            : p.surface,
                         padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.end,
@@ -943,12 +1042,71 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
         ),
     ],
       ),
-
+      ),
     );
   }
+  Widget _buildReplyBar() {
+    final msg = _replyingTo;
+    if (msg == null) return const SizedBox.shrink();
+    final p = ref.read(themeProvider).palette;
+    final author = msg.senderId == _currentUserId
+        ? 'You'
+        : (widget.isGroup
+            ? (ref.read(groupMembersProvider(widget.chatId)).value?[
+                    msg.senderId] ??
+                'Member')
+            : widget.otherUserName);
+
+    return Material(
+      color: AppColors.isGlass ? Colors.transparent : p.surface,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: p.divider),
+            left: BorderSide(color: p.primary, width: 4),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.reply, size: 18, color: p.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Replying to $author',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: p.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _replyPreviewFor(msg),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13, color: p.textGrey),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: Icon(Icons.close, size: 20, color: p.icon),
+              onPressed: _cancelReply,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // Left side of the input bar while recording
   Widget _buildRecordingBar(VoiceRecorderState recorder) {
-    final p = ref.read(themeProvider).preset;
+    final p = ref.read(themeProvider).palette;
     final timerText = Text(
       _formatRecordTime(recorder.seconds),
       style: TextStyle(
@@ -1005,7 +1163,30 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
 
   // Left side of the input bar for normal typing
   Widget _buildTypingBar() {
-    final p = ref.read(themeProvider).preset;
+    final p = ref.read(themeProvider).palette;
+    final field = Container(
+      constraints: const BoxConstraints(maxHeight: 120),
+      decoration: AppColors.isGlass
+          ? null
+          : BoxDecoration(
+              color: p.inputField,
+              borderRadius: BorderRadius.circular(24),
+            ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: TextField(
+        controller: _messageController,
+        minLines: 1,
+        maxLines: 6,
+        textCapitalization: TextCapitalization.sentences,
+        decoration: InputDecoration(
+          hintText: 'Type a message...',
+          hintStyle: TextStyle(color: p.icon),
+          border: InputBorder.none,
+          isDense: true,
+        ),
+      ),
+    );
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
@@ -1017,26 +1198,13 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
           },
         ),
         Expanded(
-          child: Container(
-            constraints: const BoxConstraints(maxHeight: 120),
-            decoration: BoxDecoration(
-              color: p.inputField,
-              borderRadius: BorderRadius.circular(24),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: TextField(
-              controller: _messageController,
-              minLines: 1,
-              maxLines: 6,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: InputDecoration(
-                hintText: 'Type a message...',
-                hintStyle: TextStyle(color: p.icon),
-                border: InputBorder.none,
-                isDense: true,
-              ),
-            ),
-          ),
+          child: AppColors.isGlass
+              ? GlassCard(
+                  borderRadius: const BorderRadius.all(Radius.circular(24)),
+                  shadow: false,
+                  child: field,
+                )
+              : field,
         ),
       ],
     );
@@ -1044,14 +1212,13 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
 
   // Right side button: send (locked / typed text) or mic
   Widget _buildRightButton(VoiceRecorderState recorder) {
-    final p = ref.read(themeProvider).preset;
     // Locked recording: send button
     if (recorder.isRecording && recorder.isLocked) {
       return CircleAvatar(
         radius: 22,
-        backgroundColor: kAccentColor,
+        backgroundColor: AppColors.accent,
         child: IconButton(
-          icon: const Icon(Icons.send, color: Colors.white, size: 20),
+          icon: Icon(Icons.send, color: AppColors.onPrimary, size: 20),
           onPressed: _stopVoiceRecording,
         ),
       );
@@ -1061,9 +1228,9 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     if (!recorder.isRecording && _messageController.text.trim().isNotEmpty) {
       return CircleAvatar(
         radius: 22,
-        backgroundColor: kAccentColor,
+        backgroundColor: AppColors.accent,
         child: IconButton(
-          icon: const Icon(Icons.send, color: Colors.white, size: 20),
+          icon: Icon(Icons.send, color: AppColors.onPrimary, size: 20),
           onPressed: _sendMessage,
         ),
       );
@@ -1081,7 +1248,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
 
   // Small "lock" bubble shown above the mic while holding
   Widget _buildLockHint() {
-    final p = ref.read(themeProvider).preset;
+    final p = ref.read(themeProvider).palette;
     return Container(
       width: 44,
       padding: const EdgeInsets.symmetric(vertical: 8),

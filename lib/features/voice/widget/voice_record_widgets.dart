@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/app_haptics.dart';
-import '../../Home/home_view.dart'; // for kAccentColor
 
 // The mic button. It understands 3 gestures:
 //  - hold and release        -> send
@@ -88,7 +88,7 @@ class _VoiceMicButtonState extends State<VoiceMicButton> {
         duration: const Duration(milliseconds: 150),
         child: CircleAvatar(
           radius: 22,
-          backgroundColor: widget.isRecording ? Colors.red : kAccentColor,
+          backgroundColor: widget.isRecording ? Colors.red : AppColors.accent,
           child: Icon(
             widget.isRecording ? Icons.mic : Icons.mic_none,
             color: Colors.white,

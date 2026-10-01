@@ -2,8 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/shared/widgets/app_skeletons.dart';
 import '../../core/shared/widgets/chat_tile.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/theme_provider.dart';
+import '../../core/utils/app_haptics.dart';
 import '../../core/utils/time_formatter.dart';
 import '../auth/Profile/Screens/full_avatar_view.dart';
+import '../chat lock/chat_lock_actions.dart';
+import '../chat lock/provider.dart';
+import '../chat lock/screens/locked_chats_screen.dart';
 
 import '../chats/providers/chat_list_provider.dart';
 import '../chats/screens/conversation_screens.dart';
@@ -26,24 +32,45 @@ class _GroupsScreenState extends ConsumerState<GroupsScreen> {
     super.dispose();
   }
 
+  Future<void> _openGroup(BuildContext context, dynamic chat, String name) async {
+    final locked =
+        ref.read(chatLockProvider).lockedChatIds.contains(chat.id);
+    if (locked) {
+      final ok = await ChatLockActions.unlockWithBiometric(
+        context: context,
+        ref: ref,
+        chatId: chat.id,
+        reason: 'Unlock $name',
+      );
+      if (!ok) return;
+    }
+    if (!context.mounted) return;
+    AppNav.push(
+      context,
+      ConversationScreen(
+        chatId: chat.id,
+        otherUserName: name,
+        avatarUrl: chat.avatarUrl,
+        isGroup: true,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    ref.watch(themeProvider);
     final chatsAsync = ref.watch(chatListProvider);
+    final lockedIds = ref.watch(chatLockProvider).lockedChatIds;
 
     final List<Widget> groupSlivers = chatsAsync.when(
       data: (chats) {
-        // Step 1: sirf group wali chats alag list mein daalo
-        List<dynamic> groupChats = [];
-        for (int i = 0; i < chats.length; i++) {
-          if (chats[i].isGroup) {
-            groupChats.add(chats[i]);
-          }
-        }
+        final groupChats = chats
+            .where((c) => c.isGroup && !lockedIds.contains(c.id))
+            .toList();
 
-        // Step 2: agar koi group nahi hai
         if (groupChats.isEmpty) {
           return <Widget>[
-            const SliverFillRemaining(
+            SliverFillRemaining(
               hasScrollBody: false,
               child: ChatEmptyState(
                 icon: Icons.groups_outlined,
@@ -54,16 +81,16 @@ class _GroupsScreenState extends ConsumerState<GroupsScreen> {
           ];
         }
 
-        // Local search (sirf UI)
         final String q = _query.trim().toLowerCase();
         final visible = groupChats.where((c) {
-          final String n = (c.otherUserName ?? 'Group').toString().toLowerCase();
+          final String n =
+              (c.otherUserName ?? 'Group').toString().toLowerCase();
           return q.isEmpty || n.contains(q);
         }).toList();
 
         if (visible.isEmpty) {
           return <Widget>[
-            const SliverFillRemaining(
+            SliverFillRemaining(
               hasScrollBody: false,
               child: ChatEmptyState(
                 icon: Icons.search_off_rounded,
@@ -74,13 +101,12 @@ class _GroupsScreenState extends ConsumerState<GroupsScreen> {
           ];
         }
 
-        // Step 3: groups ki list dikhao
         return <Widget>[
           SliverPadding(
             padding: const EdgeInsets.only(bottom: 100),
             sliver: SliverList(
               delegate: SliverChildBuilderDelegate(
-                    (context, i) {
+                (context, i) {
                   if (i.isOdd) return const ChatDivider();
 
                   final int idx = i ~/ 2;
@@ -97,31 +123,13 @@ class _GroupsScreenState extends ConsumerState<GroupsScreen> {
                     unreadCount: chat.unreadCount,
                     isGroup: true,
                     avatarUrl: chat.avatarUrl,
-                    avatarHeroTag: 'list-avatar-${chat.id}',
-                    avatarColor: Colors.teal,
-                    onTap: () {
-                      AppNav.push(
-                        context,
-                        ConversationScreen(
-                          chatId: chat.id,
-                          otherUserName: name,
-                          avatarUrl: chat.avatarUrl,
-                          isGroup: true,
-                        ),
-                      );
-                    },
+                    avatarHeroTag: 'groups-avatar-${chat.id}',
+                    avatarColor: AppColors.primary,
+                    onTap: () => _openGroup(context, chat, name),
                     onAvatarTap: () {
                       final url = chat.avatarUrl;
                       if (url == null || url.isEmpty) {
-                        AppNav.push(
-                          context,
-                          ConversationScreen(
-                            chatId: chat.id,
-                            otherUserName: name,
-                            avatarUrl: chat.avatarUrl,
-                            isGroup: true,
-                          ),
-                        );
+                        _openGroup(context, chat, name);
                         return;
                       }
                       AppNav.fade(
@@ -129,7 +137,7 @@ class _GroupsScreenState extends ConsumerState<GroupsScreen> {
                         FullAvatarView(
                           imageUrl: url,
                           title: name,
-                          heroTag: 'list-avatar-${chat.id}',
+                          heroTag: 'groups-avatar-${chat.id}',
                         ),
                       );
                     },
@@ -153,12 +161,32 @@ class _GroupsScreenState extends ConsumerState<GroupsScreen> {
     );
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor:
+          AppColors.isGlass ? Colors.transparent : AppColors.background,
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         slivers: [
-          ChatUi.sliverHeader('Groups'),
+          ChatUi.sliverHeader(
+            'Groups',
+            actions: [
+              PopupMenuButton<String>(
+                icon: Icon(Icons.more_vert, color: AppColors.textMain),
+                onSelected: (value) {
+                  if (value == 'locked') {
+                    AppHaptics.tap();
+                    AppNav.push(context, const LockedChatsScreen());
+                  }
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: 'locked',
+                    child: Text('Show locked chats'),
+                  ),
+                ],
+              ),
+            ],
+          ),
           SliverToBoxAdapter(
             child: ChatSearchField(
               controller: _searchController,
@@ -167,6 +195,8 @@ class _GroupsScreenState extends ConsumerState<GroupsScreen> {
             ),
           ),
           ...groupSlivers,
+          if (AppColors.isGlass)
+            const SliverToBoxAdapter(child: SizedBox(height: 100)),
         ],
       ),
     );

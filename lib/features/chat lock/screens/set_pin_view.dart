@@ -8,11 +8,20 @@ import '../../../core/theme/app_colors.dart';
 import '../../auth/widget/auth_header.dart';
 import '../provider.dart';
 
-
-// Shown the first time the user locks any chat.
-// Pops with `true` once a PIN has been saved.
+/// Create / change a 4-digit PIN.
+///
+/// - [chatId] null → shared PIN (or mode is shared)
+/// - [chatId] set → per-chat PIN in separate mode
+/// - [isChange] true → title says "Change PIN"
 class SetPinScreen extends ConsumerStatefulWidget {
-  const SetPinScreen({super.key});
+  final String? chatId;
+  final bool isChange;
+
+  const SetPinScreen({
+    super.key,
+    this.chatId,
+    this.isChange = false,
+  });
 
   @override
   ConsumerState<SetPinScreen> createState() => _SetPinScreenState();
@@ -49,7 +58,10 @@ class _SetPinScreenState extends ConsumerState<SetPinScreen> {
       _isSaving = true;
     });
 
-    await ref.read(chatLockProvider.notifier).setPin(pin);
+    await ref.read(chatLockProvider.notifier).setPin(
+          pin,
+          chatId: widget.chatId,
+        );
 
     if (!mounted) return;
     Navigator.pop(context, true);
@@ -61,6 +73,7 @@ class _SetPinScreenState extends ConsumerState<SetPinScreen> {
       FilteringTextInputFormatter.digitsOnly,
       LengthLimitingTextInputFormatter(4),
     ];
+    final separate = widget.chatId != null;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -70,12 +83,13 @@ class _SetPinScreenState extends ConsumerState<SetPinScreen> {
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
             child: Column(
               children: [
-                const AuthHeader(
-                  title: 'Set a PIN',
+                AuthHeader(
+                  title: widget.isChange ? 'Change PIN' : 'Set a PIN',
                   showBackButton: true,
-                  subtitle:
-                  'Choose a 4-digit PIN to lock and unlock your chats. '
-                      'This PIN is stored only on this device.',
+                  subtitle: separate
+                      ? 'This PIN is only for this chat and stays on this device.'
+                      : 'Choose a 4-digit PIN used for locked chats. '
+                          'Stored only on this device.',
                 ),
                 CustomTextField(
                   controller: _pinController,
@@ -98,12 +112,17 @@ class _SetPinScreenState extends ConsumerState<SetPinScreen> {
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 10),
-                  Text(_error!,
-                      style: const TextStyle(color: AppColors.error, fontSize: 12.5)),
+                  Text(
+                    _error!,
+                    style: TextStyle(
+                      color: AppColors.error,
+                      fontSize: 12.5,
+                    ),
+                  ),
                 ],
                 const SizedBox(height: 32),
                 CustomButton(
-                  text: 'Save PIN',
+                  text: widget.isChange ? 'Update PIN' : 'Save PIN',
                   isLoading: _isSaving,
                   onPressed: _save,
                 ),

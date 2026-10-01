@@ -3,10 +3,10 @@ import 'package:flutter/material.dart';
 import '../utils/app_haptics.dart';
 
 enum AppTransition {
-  /// Forward push: soft slide + fade + slight scale (default).
+  /// Side-to-side slide + fade (default for chats, profile, etc.).
   forward,
 
-  /// Shared-axis vertical — sheets / settings-style.
+  /// Soft vertical rise — sheets / settings-style.
   vertical,
 
   /// Fade only — photo previews, overlays.
@@ -26,9 +26,9 @@ class AppPageRoute<T> extends PageRouteBuilder<T> {
     Duration? reverseDuration,
   }) : super(
           pageBuilder: (context, animation, secondaryAnimation) => page,
-          transitionDuration: duration ?? const Duration(milliseconds: 340),
+          transitionDuration: duration ?? const Duration(milliseconds: 300),
           reverseTransitionDuration:
-              reverseDuration ?? const Duration(milliseconds: 280),
+              reverseDuration ?? const Duration(milliseconds: 260),
           opaque: type != AppTransition.fade,
           barrierColor: type == AppTransition.fade ? Colors.black54 : null,
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
@@ -70,10 +70,7 @@ class AppPageRoute<T> extends PageRouteBuilder<T> {
             begin: const Offset(0, 0.08),
             end: Offset.zero,
           ).animate(primary),
-          child: FadeTransition(
-            opacity: Tween<double>(begin: 0, end: 1).animate(primary),
-            child: child,
-          ),
+          child: FadeTransition(opacity: primary, child: child),
         );
 
       case AppTransition.fadeThrough:
@@ -81,35 +78,34 @@ class AppPageRoute<T> extends PageRouteBuilder<T> {
           opacity: Tween<double>(begin: 0, end: 1).animate(
             CurvedAnimation(
               parent: animation,
-              curve: const Interval(0.3, 1, curve: Curves.easeOut),
+              curve: const Interval(0.2, 1, curve: Curves.easeOut),
             ),
           ),
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.96, end: 1).animate(primary),
-            child: child,
-          ),
+          child: child,
         );
 
       case AppTransition.forward:
         final incoming = SlideTransition(
           position: Tween<Offset>(
-            begin: const Offset(0.07, 0),
+            begin: const Offset(1, 0),
             end: Offset.zero,
           ).animate(primary),
           child: FadeTransition(
-            opacity: Tween<double>(begin: 0, end: 1).animate(primary),
-            child: ScaleTransition(
-              scale: Tween<double>(begin: 0.985, end: 1).animate(primary),
-              child: child,
+            opacity: Tween<double>(begin: 0.0, end: 1).animate(
+              CurvedAnimation(
+                parent: animation,
+                curve: const Interval(0, 0.7, curve: Curves.easeOut),
+                reverseCurve: Curves.easeIn,
+              ),
             ),
+            child: child,
           ),
         );
 
-        // Previous page eases slightly left + dims
         return SlideTransition(
           position: Tween<Offset>(
             begin: Offset.zero,
-            end: const Offset(-0.035, 0),
+            end: const Offset(-0.25, 0),
           ).animate(secondary),
           child: incoming,
         );
@@ -150,7 +146,10 @@ class AppNav {
     Navigator.of(context).pop<T>(result);
   }
 
-  static Future<bool> maybePop<T extends Object?>(BuildContext context, [T? result]) {
+  static Future<bool> maybePop<T extends Object?>(
+    BuildContext context, [
+    T? result,
+  ]) {
     AppHaptics.back();
     return Navigator.of(context).maybePop<T>(result);
   }

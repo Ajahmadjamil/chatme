@@ -7,15 +7,18 @@ import '../../../core/shared/widgets/custom_text_field.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../auth/widget/auth_header.dart';
 import '../provider.dart';
-// Asks for the PIN. Pops with `true` if the entered PIN was correct.
+
+/// Verify a chat-lock PIN. Pops `true` when correct.
 class EnterPinScreen extends ConsumerStatefulWidget {
   final String title;
   final String subtitle;
+  final String? chatId;
 
   const EnterPinScreen({
     super.key,
     this.title = 'Enter PIN',
     this.subtitle = 'Enter your 4-digit PIN to continue.',
+    this.chatId,
   });
 
   @override
@@ -45,7 +48,10 @@ class _EnterPinScreenState extends ConsumerState<EnterPinScreen> {
       _isChecking = true;
     });
 
-    final correct = await ref.read(chatLockProvider.notifier).verifyPin(pin);
+    final correct = await ref.read(chatLockProvider.notifier).verifyPin(
+          pin,
+          chatId: widget.chatId,
+        );
 
     if (!mounted) return;
     setState(() => _isChecking = false);
@@ -88,12 +94,17 @@ class _EnterPinScreenState extends ConsumerState<EnterPinScreen> {
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 10),
-                  Text(_error!,
-                      style: const TextStyle(color: AppColors.error, fontSize: 12.5)),
+                  Text(
+                    _error!,
+                    style: TextStyle(
+                      color: AppColors.error,
+                      fontSize: 12.5,
+                    ),
+                  ),
                 ],
                 const SizedBox(height: 32),
                 CustomButton(
-                  text: 'Unlock',
+                  text: 'Continue',
                   isLoading: _isChecking,
                   onPressed: _verify,
                 ),

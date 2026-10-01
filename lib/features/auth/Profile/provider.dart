@@ -46,6 +46,25 @@ class ProfileActions {
     }).eq('id', userId);
   }
 
+  /// First-login onboarding after Google sign-in.
+  Future<void> completeProfile({
+    required String name,
+    required String phone,
+    required String about,
+  }) async {
+    final userId = _supabase.auth.currentUser!.id;
+    final trimmedAbout = about.trim();
+    await _supabase.from('profiles').update({
+      'name': name.trim(),
+      'phone': phone.trim(),
+      'about': trimmedAbout.isEmpty
+          ? 'Hey there! I am using ChatMe.'
+          : trimmedAbout,
+      'profile_complete': true,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    }).eq('id', userId);
+  }
+
   /// Uploads an already-cropped (ideally 1:1) image, resizes to 512px, saves URL.
   Future<void> updateAvatar(File imageFile) async {
     final userId = _supabase.auth.currentUser!.id;
@@ -105,16 +124,6 @@ class ProfileActions {
     );
     await out.writeAsBytes(jpg, flush: true);
     return out;
-  }
-
-  Future<void> changePassword({
-    required String currentPassword,
-    required String newPassword,
-  }) async {
-    final email = _supabase.auth.currentUser!.email!;
-    await _supabase.auth
-        .signInWithPassword(email: email, password: currentPassword);
-    await _supabase.auth.updateUser(UserAttributes(password: newPassword));
   }
 }
 

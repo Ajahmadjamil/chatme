@@ -3,7 +3,7 @@ import '../theme/app_colors.dart';
 import 'app_haptics.dart';
 
 // What the user picked in the message options dialog
-enum MessageAction { edit, delete }
+enum MessageAction { reply, edit, delete }
 
 // All dialogs of the app are here. Use them like:
 //   final yes = await AppDialogs.confirmExit(context);
@@ -27,11 +27,11 @@ class AppDialogs {
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: Colors.white,
+        backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
           title,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.bold,
             color: AppColors.textDark,
@@ -39,14 +39,14 @@ class AppDialogs {
         ),
         content: Text(
           message,
-          style: const TextStyle(fontSize: 14, color: AppColors.textGrey),
+          style: TextStyle(fontSize: 14, color: AppColors.textGrey),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
             child: Text(
               cancelText,
-              style: const TextStyle(color: AppColors.textGrey),
+              style: TextStyle(color: AppColors.textGrey),
             ),
           ),
           TextButton(
@@ -112,20 +112,22 @@ class AppDialogs {
     );
   }
 
-  // ---------- MESSAGE OPTIONS (Edit / Delete) ----------
+  // ---------- MESSAGE OPTIONS (Reply / Edit / Delete) ----------
 
-  // Returns MessageAction.edit, MessageAction.delete, or null if cancelled.
-  // canEdit = false hides the Edit button (voice and image messages can't be edited)
+  // Returns MessageAction, or null if cancelled.
+  // canEdit / canDelete are only true for your own messages.
   static Future<MessageAction?> messageOptions(
-      BuildContext context, {
-        bool canEdit = true,
-      }) {
+    BuildContext context, {
+    bool canReply = true,
+    bool canEdit = false,
+    bool canDelete = false,
+  }) {
     return showDialog<MessageAction>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: Colors.white,
+        backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
+        title: Text(
           'Message options',
           style: TextStyle(
             fontSize: 18,
@@ -133,19 +135,44 @@ class AppDialogs {
             color: AppColors.textDark,
           ),
         ),
+        actionsAlignment: MainAxisAlignment.start,
         actions: [
+          if (canReply)
+            TextButton.icon(
+              onPressed: () =>
+                  Navigator.pop(dialogContext, MessageAction.reply),
+              icon: Icon(Icons.reply, size: 18, color: AppColors.primary),
+              label: Text(
+                'Reply',
+                style: TextStyle(color: AppColors.primary),
+              ),
+            ),
           if (canEdit)
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, MessageAction.edit),
-              child: const Text('Edit', style: TextStyle(color: AppColors.primary)),
+            TextButton.icon(
+              onPressed: () =>
+                  Navigator.pop(dialogContext, MessageAction.edit),
+              icon: Icon(Icons.edit_outlined, size: 18, color: AppColors.primary),
+              label: Text(
+                'Edit',
+                style: TextStyle(color: AppColors.primary),
+              ),
+            ),
+          if (canDelete)
+            TextButton.icon(
+              onPressed: () =>
+                  Navigator.pop(dialogContext, MessageAction.delete),
+              icon: Icon(Icons.delete_outline, size: 18, color: AppColors.error),
+              label: Text(
+                'Delete',
+                style: TextStyle(color: AppColors.error),
+              ),
             ),
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, MessageAction.delete),
-            child: const Text('Delete', style: TextStyle(color: AppColors.error)),
-          ),
-          TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel', style: TextStyle(color: AppColors.textGrey)),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: AppColors.textGrey),
+            ),
           ),
         ],
       ),
@@ -207,11 +234,11 @@ class _EditTextDialogState extends State<_EditTextDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.surface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Text(
         widget.title,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 18,
           fontWeight: FontWeight.bold,
           color: AppColors.textDark,
@@ -225,13 +252,13 @@ class _EditTextDialogState extends State<_EditTextDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context), // returns null
-          child: const Text('Cancel', style: TextStyle(color: AppColors.textGrey)),
+          child: Text('Cancel', style: TextStyle(color: AppColors.textGrey)),
         ),
         TextButton(
           onPressed: () => Navigator.pop(context, _controller.text.trim()),
           child: Text(
             widget.saveText,
-            style: const TextStyle(
+            style: TextStyle(
               color: AppColors.primary,
               fontWeight: FontWeight.bold,
             ),

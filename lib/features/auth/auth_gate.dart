@@ -1,43 +1,69 @@
-import '/features/Base/main_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../core/shared/widgets/app_skeletons.dart';
+import '../../core/theme/app_colors.dart';
+import '../Base/main_view.dart';
+import 'Profile/provider.dart';
+import 'complete_profile/view.dart';
 import 'controller.dart';
-import 'forget_password/reset_password.dart';
 import 'signin/view.dart';
 
-// Decides the screen:
-//   checking reset link  -> skeleton
-//   reset link is OK     -> Reset Password
-//   logged in            -> Home
-//   logged out           -> Sign In
+/// Root router:
+///   logged out              -> Google Sign-In
+///   logged in, incomplete   -> Complete Profile
+///   logged in, ready        -> Main
 class AuthGate extends ConsumerWidget {
   const AuthGate({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    ref.listen<RecoveryState>(passwordRecoveryProvider, (previous, next) {
-      if (next.error != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(next.error!)),
-        );
-      }
-    });
-
-    final recovery = ref.watch(passwordRecoveryProvider);
     final session = ref.watch(sessionProvider);
 
-    if (recovery.status == RecoveryStatus.processing) {
-      return AppSkeletons.authGate();
-    }
-    if (recovery.status == RecoveryStatus.ready) {
-      return const ResetPasswordView();
-    }
-
     return session.when(
-      data: (s) => s == null ? const SignInView() : const MainScreen(),
       loading: () => AppSkeletons.authGate(),
-      error: (error, stack) => const SignInView(),
+      error: (_, __) => const SignInView(),
+      data: (s) {
+        if (s == null) return const SignInView();
+
+        final profileAsync = ref.watch(myProfileProvider);
+        return profileAsync.when(
+          loading: () => AppSkeletons.authGate(),
+          error: (err, _) => Scaffold(
+            backgroundColor: AppColors.background,
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Could not load your profile.\n$err',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppColors.textMain),
+                    ),
+                    const SizedBox(height: 16),
+                    TextButton(
+                      onPressed: () => ref.invalidate(myProfileProvider),
+                      child: const Text('Retry'),
+                    ),
+                    TextButton(
+                      onPressed: () =>
+                          ref.read(authControllerProvider.notifier).signOut(),
+                      child: const Text('Sign out'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          data: (profile) {
+            final complete = profile['profile_complete'] == true;
+            if (!complete) return const CompleteProfileView();
+            return const MainScreen();
+          },
+        );
+      },
     );
   }
 }

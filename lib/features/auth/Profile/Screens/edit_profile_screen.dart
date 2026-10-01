@@ -7,7 +7,6 @@ import '../../../../core/shared/widgets/custom_button.dart';
 import '../../../../core/shared/widgets/custom_text_field.dart';
 import '../../../../core/shared/widgets/user_avatar.dart';
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/theme_provider.dart';
 import '../../widget/auth_header.dart';
 import '../provider.dart';
 import 'package:skeletonizer/skeletonizer.dart';
@@ -92,7 +91,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final profileAsync = ref.watch(myProfileProvider);
-    final headerColor = ref.watch(themeProvider).seedColor;
+    final headerColor = AppColors.primary;
 
     return Scaffold(
       backgroundColor: AppColors.background,

@@ -5,6 +5,8 @@ import 'package:crop_your_image/crop_your_image.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../../../core/theme/app_colors.dart';
+
 /// Dark WhatsApp-style cropper with a locked 1:1 circular frame.
 class AvatarCropScreen extends StatefulWidget {
   final File imageFile;
@@ -77,18 +79,18 @@ class _AvatarCropScreenState extends State<AvatarCropScreen> {
                     _controller.crop();
                   },
             child: _cropping
-                ? const Text(
+                ? Text(
                     '…',
                     style: TextStyle(
-                      color: Color(0xFF25D366),
+                      color: AppColors.accent,
                       fontWeight: FontWeight.w700,
                       fontSize: 16,
                     ),
                   )
-                : const Text(
+                : Text(
                     'Done',
                     style: TextStyle(
-                      color: Color(0xFF25D366),
+                      color: AppColors.accent,
                       fontWeight: FontWeight.w700,
                       fontSize: 16,
                     ),

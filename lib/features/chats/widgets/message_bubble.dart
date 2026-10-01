@@ -9,6 +9,7 @@ import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/shared/widgets/app_skeletons.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/theme_provider.dart';
 import '../../../core/utils/time_formatter.dart';
 import '../screens/full_screen_image.dart';
@@ -20,6 +21,7 @@ class MessageBubble extends ConsumerWidget {
   final bool isMe;
   final String status; // 'sent' | 'delivered' | 'read'
   final VoidCallback? onLongPress;
+  final VoidCallback? onReply;
   final String? senderName; // only used in group chats, for messages not sent by me
   final String messageType;
   final String? mediaUrl;
@@ -28,6 +30,10 @@ class MessageBubble extends ConsumerWidget {
   final bool selectionMode;
   final bool isSelected;
   final VoidCallback? onToggleSelect;
+  final String? replyToName;
+  final String? replyToText;
+  final String? replyToType;
+
   const MessageBubble({
     super.key,
     required this.text,
@@ -36,6 +42,7 @@ class MessageBubble extends ConsumerWidget {
     this.status = 'sent',
     this.senderName,
     this.onLongPress,
+    this.onReply,
     this.messageType = 'text',
     this.mediaUrl,
     this.durationSeconds,
@@ -43,14 +50,14 @@ class MessageBubble extends ConsumerWidget {
     this.selectionMode = false,
     this.isSelected = false,
     this.onToggleSelect,
+    this.replyToName,
+    this.replyToText,
+    this.replyToType,
   });
-
-  static const Color _sentColor = Color(0xFFDCF8C6);
-  static const Color _receivedColor = Colors.white;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final p = ref.watch(themeProvider).preset;
+    final p = ref.watch(themeProvider).palette;
     // System/info messages (like "Auto-delete turned on") get a simple
     // centered pill instead of a normal chat bubble
     if (messageType == 'system') {
@@ -58,61 +65,76 @@ class MessageBubble extends ConsumerWidget {
         margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 40),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: p.textGrey.withOpacity(0.15),
+          color: p.textGrey.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Text(
           text,
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12, color: p.textGrey)),
+          style: TextStyle(fontSize: 12, color: p.textGrey),
+        ),
       );
     }
-    return GestureDetector(
+
+    final bubble = GestureDetector(
       onLongPress: onLongPress,
       onDoubleTap: onToggleSelect,
       child: Stack(
-        children:[
+        children: [
           Align(
-          alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-          child: Container(
-            margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 8),
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.78,
-            ),
-            decoration: BoxDecoration(
-              color: isMe ? p.myBubble : p.otherBubble,
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(10),
-                topRight: const Radius.circular(10),
-                bottomLeft: Radius.circular(isMe ? 10 : 2),
-                bottomRight: Radius.circular(isMe ? 2 : 10),
+            alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 8),
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.78,
               ),
-              boxShadow: const [
-                BoxShadow(color: Colors.black12, blurRadius: 1, offset: Offset(0, 1)),
-              ],
-            ),
-            padding: const EdgeInsets.fromLTRB(10, 6, 8, 4),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-        
-                // Sender name — only shown for group chats, on messages I didn't send
-                if (senderName != null && !isMe)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 2),
-                    child: Text(
-                      senderName!,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.teal,
+              decoration: BoxDecoration(
+                color: isMe ? p.myBubble : p.otherBubble,
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(10),
+                  topRight: const Radius.circular(10),
+                  bottomLeft: Radius.circular(isMe ? 10 : 2),
+                  bottomRight: Radius.circular(isMe ? 2 : 10),
+                ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black12,
+                    blurRadius: 1,
+                    offset: Offset(0, 1),
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.fromLTRB(10, 6, 8, 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (senderName != null && !isMe)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Text(
+                        senderName!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.teal,
+                        ),
                       ),
                     ),
-                  ),
-        
-                // ===== IMAGE (UI updated — fixed compact box, WhatsApp-style) =====
-                if (messageType == 'image' && mediaUrl != null)
+
+                  if (replyToText != null || replyToType != null)
+                    _ReplyQuote(
+                      name: replyToName ?? 'Message',
+                      preview: _replyPreviewLabel(
+                        replyToType: replyToType,
+                        replyToText: replyToText,
+                      ),
+                      accent: p.primary,
+                      isMine: isMe,
+                    ),
+
+                  // ===== IMAGE (UI updated — fixed compact box, WhatsApp-style) =====
+                  if (messageType == 'image' && mediaUrl != null)
                   GestureDetector(
                     onTap: () {
                       if (selectionMode) {
@@ -284,7 +306,24 @@ class MessageBubble extends ConsumerWidget {
         // ===== END LOCATION MESSAGE =====
         
                 // Text is hidden for voice messages (player replaces it)
-                if (messageType != 'voice')
+                // and for pure media without a caption.
+                if (messageType != 'voice' &&
+                    messageType != 'image' &&
+                    messageType != 'file' &&
+                    messageType != 'location')
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Text(
+                      text,
+                      style: TextStyle(
+                        fontSize: 15,
+                        height: 1.3,
+                        color: isMe ? p.myBubbleText : p.otherBubbleText,
+                      ),
+                    ),
+                  )
+                else if (messageType == 'image' &&
+                    text.trim().isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 2),
                     child: Text(
@@ -303,7 +342,9 @@ class MessageBubble extends ConsumerWidget {
                       formatMessageTime(time),
                       style: TextStyle(
                         fontSize: 11,
-                        color: isMe ? p.myBubbleText.withOpacity(0.7) : p.textGrey,
+                        color: isMe
+                            ? p.myBubbleText.withValues(alpha: 0.7)
+                            : p.textGrey,
                       ),
                     ),
                     if (isMe) ...[
@@ -316,8 +357,111 @@ class MessageBubble extends ConsumerWidget {
             ),
           ),
         ),
+          if (isSelected)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: ColoredBox(
+                  color: p.primary.withValues(alpha: 0.12),
+                ),
+              ),
+            ),
         ],
-      )
+      ),
+    );
+
+    if (onReply == null || selectionMode) return bubble;
+
+    // WhatsApp-style: swipe right to reply (bubble springs back).
+    return Dismissible(
+      key: ValueKey('swipe-reply-$time-${text.hashCode}'),
+      direction: DismissDirection.startToEnd,
+      confirmDismiss: (_) async {
+        onReply?.call();
+        return false;
+      },
+      background: Align(
+        alignment: Alignment.centerLeft,
+        child: Padding(
+          padding: const EdgeInsets.only(left: 16),
+          child: CircleAvatar(
+            radius: 16,
+            backgroundColor: p.primary.withValues(alpha: 0.15),
+            child: Icon(Icons.reply, size: 18, color: p.primary),
+          ),
+        ),
+      ),
+      child: bubble,
+    );
+  }
+}
+
+String _replyPreviewLabel({String? replyToType, String? replyToText}) {
+  switch (replyToType) {
+    case 'image':
+      return 'Photo';
+    case 'voice':
+      return 'Voice message';
+    case 'file':
+      return replyToText?.trim().isNotEmpty == true ? replyToText! : 'File';
+    case 'location':
+      return 'Location';
+    default:
+      final t = replyToText?.trim() ?? '';
+      return t.isEmpty ? 'Message' : t;
+  }
+}
+
+class _ReplyQuote extends StatelessWidget {
+  final String name;
+  final String preview;
+  final Color accent;
+  final bool isMine;
+
+  const _ReplyQuote({
+    required this.name,
+    required this.preview,
+    required this.accent,
+    required this.isMine,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: isMine ? 0.08 : 0.05),
+        borderRadius: BorderRadius.circular(8),
+        border: Border(
+          left: BorderSide(color: accent, width: 3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: accent,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            preview,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.black.withValues(alpha: 0.65),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -436,7 +580,7 @@ class _StatusTicks extends StatelessWidget {
     if (status == 'sent') {
       return const Icon(Icons.done, size: 15, color: Colors.grey);
     }
-    final color = status == 'read' ? const Color(0xFF34B7F1) : Colors.grey;
+    final color = status == 'read' ? AppColors.readReceipt : AppColors.unreadReceipt;
     return Icon(Icons.done_all, size: 15, color: color);
   }
 }

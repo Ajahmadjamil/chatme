@@ -58,14 +58,14 @@ class _CustomTextFieldState extends State<CustomTextField> {
             // White pill with a soft shadow (like the design)
             Container(
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: AppColors.surface,
                 borderRadius: BorderRadius.circular(
                   widget.maxLines > 1 ? 22 : 30,
                 ),
                 border: Border.all(
                   color: hasError ? AppColors.error : Colors.transparent,
                 ),
-                boxShadow: const [
+                boxShadow: [
                   BoxShadow(
                     color: AppColors.shadow,
                     blurRadius: 12,
@@ -87,10 +87,10 @@ class _CustomTextFieldState extends State<CustomTextField> {
                 onChanged: (value) => state.didChange(value),
                 maxLines: widget.obscureText ? 1 : widget.maxLines,
                 maxLength: widget.maxLength,
-                style: const TextStyle(fontSize: 15, color: AppColors.textDark),
+                style: TextStyle(fontSize: 15, color: AppColors.textDark),
                 decoration: InputDecoration(
                   hintText: widget.hintText,
-                  hintStyle: const TextStyle(fontSize: 15, color: AppColors.icon),
+                  hintStyle: TextStyle(fontSize: 15, color: AppColors.icon),
                   border: InputBorder.none,
                   counterText: widget.maxLength == null ? '' : null,
                   contentPadding: EdgeInsets.symmetric(
@@ -120,7 +120,7 @@ class _CustomTextFieldState extends State<CustomTextField> {
                 padding: const EdgeInsets.only(left: 20, top: 6),
                 child: Text(
                   state.errorText!,
-                  style: const TextStyle(color: AppColors.error, fontSize: 12.5),
+                  style: TextStyle(color: AppColors.error, fontSize: 12.5),
                 ),
               ),
           ],

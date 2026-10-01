@@ -5,12 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/navigation/app_nav.dart';
 import '../../../../core/shared/widgets/app_skeletons.dart';
 import '../../../../core/shared/widgets/user_avatar.dart';
+import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/theme_provider.dart';
 import '../../../../core/utils/app_dialogs.dart';
 import '../../../../core/utils/app_haptics.dart';
+import '../../../chat lock/chat_lock_actions.dart';
+import '../../../chat lock/screens/manage_locks_screen.dart';
 import '../../controller.dart';
 import '../provider.dart';
-import 'change_password.dart';
 import 'edit_profile_screen.dart';
 import 'full_avatar_view.dart';
 
@@ -27,11 +29,12 @@ class ProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profileAsync = ref.watch(myProfileProvider);
-    final theme = ref.watch(themeProvider);
-    final headerColor = theme.seedColor;
+    ref.watch(themeProvider);
+    final headerColor = AppColors.primary;
 
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      backgroundColor:
+          AppColors.isGlass ? Colors.transparent : AppColors.background,
       body: profileAsync.when(
         data: (profile) {
           final name = (profile['name'] as String?) ?? '';
@@ -225,13 +228,19 @@ class ProfileScreen extends ConsumerWidget {
                           ),
                           const _TileDivider(),
                           _SettingsTile(
-                            icon: Icons.lock_outline,
-                            title: 'Privacy',
-                            iconColor: Colors.orange.shade700,
-                            onTap: () => AppNav.push(
-                              context,
-                              const ChangePasswordScreen(),
-                            ),
+                            icon: Icons.lock_outline_rounded,
+                            title: 'Chat locks',
+                            iconColor: Colors.deepOrange.shade400,
+                            onTap: () async {
+                              AppHaptics.tap();
+                              final ok = await ChatLockActions
+                                  .authenticateForManage(context, ref);
+                              if (!ok || !context.mounted) return;
+                              AppNav.push(
+                                context,
+                                const ManageLocksScreen(),
+                              );
+                            },
                           ),
                           const _TileDivider(),
                           _SettingsTile(

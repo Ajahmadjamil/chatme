@@ -22,7 +22,7 @@ void showAutoClearSheet({
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Padding(
+            Padding(
               padding: EdgeInsets.all(16),
               child: Text(
                 'Auto-delete messages',
@@ -41,7 +41,7 @@ void showAutoClearSheet({
                       : Icons.radio_button_off,
                   color: option == currentOption ? AppColors.primary : AppColors.icon,
                 ),
-                title: Text(option.label, style: const TextStyle(color: AppColors.textDark)),
+                title: Text(option.label, style: TextStyle(color: AppColors.textDark)),
                 onTap: () {
                   Navigator.pop(context);
                   onSelected(option.minutes);

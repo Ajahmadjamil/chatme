@@ -1,67 +1,114 @@
-import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
-// Maps chatId -> local file path of that chat's wallpaper image.
-// Nothing here goes to Supabase; this is purely a per-device preference.
-class ChatWallpaperNotifier extends Notifier<Map<String, String>> {
-  static const _prefsKey = 'chat_wallpapers';
+/// Shared per-chat wallpaper URL (Supabase). Same image for every member.
+class ChatWallpaperNotifier extends AsyncNotifier<String?> {
+  ChatWallpaperNotifier(this.chatId);
+
+  final String chatId;
+  RealtimeChannel? _channel;
 
   @override
-  Map<String, String> build() {
-    _loadSaved();
-    return {};
+  Future<String?> build() async {
+    final supabase = Supabase.instance.client;
+
+    ref.onDispose(() {
+      if (_channel != null) {
+        supabase.removeChannel(_channel!);
+        _channel = null;
+      }
+    });
+
+    _channel = supabase
+        .channel('chat-wallpaper-$chatId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'chats',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'id',
+            value: chatId,
+          ),
+          callback: (payload) {
+            final url = payload.newRecord['wallpaper_url'] as String?;
+            state = AsyncData(url);
+          },
+        )
+        .subscribe();
+
+    final row = await supabase
+        .from('chats')
+        .select('wallpaper_url')
+        .eq('id', chatId)
+        .maybeSingle();
+
+    return row?['wallpaper_url'] as String?;
   }
 
-  Future<void> _loadSaved() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_prefsKey);
-    if (raw == null) return;
+  Future<void> setWallpaper(File pickedFile) async {
+    final supabase = Supabase.instance.client;
+    final storagePath = '$chatId/wallpaper_${const Uuid().v4()}.jpg';
 
-    final decoded = jsonDecode(raw) as Map<String, dynamic>;
-    state = decoded.map((key, value) => MapEntry(key, value as String));
-  }
+    await supabase.storage.from('chat-media').upload(
+          storagePath,
+          pickedFile,
+          fileOptions: const FileOptions(
+            contentType: 'image/jpeg',
+            upsert: false,
+          ),
+        );
 
-  Future<void> _saveToPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefsKey, jsonEncode(state));
-  }
+    final publicUrl =
+        supabase.storage.from('chat-media').getPublicUrl(storagePath);
 
-  // Copies the picked image into the app's own folder (so it survives even
-  // if the original gallery file is deleted), then remembers its path.
-  Future<void> setWallpaper(String chatId, File pickedFile) async {
-    final dir = await getApplicationDocumentsDirectory();
-    final fileName = '${const Uuid().v4()}.jpg';
-    final savedFile = await pickedFile.copy('${dir.path}/$fileName');
+    final previous = state.value;
 
-    // Delete the old wallpaper file for this chat, if there was one
-    final oldPath = state[chatId];
-    if (oldPath != null) {
-      final oldFile = File(oldPath);
-      if (await oldFile.exists()) await oldFile.delete();
+    await supabase.from('chats').update({
+      'wallpaper_url': publicUrl,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    }).eq('id', chatId);
+
+    state = AsyncData(publicUrl);
+
+    if (previous != null && previous.isNotEmpty) {
+      await _tryDeleteStorageUrl(previous);
     }
-
-    state = {...state, chatId: savedFile.path};
-    await _saveToPrefs();
   }
 
-  Future<void> removeWallpaper(String chatId) async {
-    final path = state[chatId];
-    if (path != null) {
-      final file = File(path);
-      if (await file.exists()) await file.delete();
-    }
+  Future<void> removeWallpaper() async {
+    final supabase = Supabase.instance.client;
+    final previous = state.value;
 
-    final updated = Map<String, String>.from(state)..remove(chatId);
-    state = updated;
-    await _saveToPrefs();
+    await supabase.from('chats').update({
+      'wallpaper_url': null,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    }).eq('id', chatId);
+
+    state = const AsyncData(null);
+
+    if (previous != null && previous.isNotEmpty) {
+      await _tryDeleteStorageUrl(previous);
+    }
+  }
+
+  Future<void> _tryDeleteStorageUrl(String publicUrl) async {
+    try {
+      const marker = '/chat-media/';
+      final idx = publicUrl.indexOf(marker);
+      if (idx < 0) return;
+      final path = Uri.decodeComponent(
+        publicUrl.substring(idx + marker.length).split('?').first,
+      );
+      await Supabase.instance.client.storage.from('chat-media').remove([path]);
+    } catch (_) {
+      // Non-fatal — wallpaper row already cleared.
+    }
   }
 }
 
-final chatWallpaperProvider =
-NotifierProvider<ChatWallpaperNotifier, Map<String, String>>(
-  ChatWallpaperNotifier.new,
-);
+final chatWallpaperProvider = AsyncNotifierProvider.family<
+    ChatWallpaperNotifier, String?, String>(ChatWallpaperNotifier.new);

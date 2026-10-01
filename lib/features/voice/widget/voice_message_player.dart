@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/app_haptics.dart';
 import '../../voice/provider/voice_player_provider.dart';
 
@@ -48,7 +49,7 @@ class VoiceMessagePlayer extends ConsumerWidget {
 
     final barHeights = _generateBarHeights();
 
-    final accentColor = isMe ? const Color(0xFF128C7E) : Colors.teal;
+    final accentColor = AppColors.primary;
     final playedBarColor = accentColor;
     final unplayedBarColor = accentColor.withOpacity(0.3);
 

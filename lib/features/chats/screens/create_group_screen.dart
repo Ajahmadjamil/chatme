@@ -70,7 +70,7 @@
 //     showDialog(
 //       context: context,
 //       barrierDismissible: false,
-//       builder: (_) => const Center(
+//       builder: (_) => Center(
 //         child: CircularProgressIndicator(color: AppColors.primary),
 //       ),
 //     );
@@ -115,11 +115,11 @@
 //         backgroundColor: AppColors.background,
 //         elevation: 0,
 //         surfaceTintColor: Colors.transparent,
-//         title: const Text(
+//         title: Text(
 //           'New Group',
 //           style: TextStyle(color: AppColors.textDark, fontWeight: FontWeight.w700),
 //         ),
-//         iconTheme: const IconThemeData(color: AppColors.textDark),
+//         iconTheme: IconThemeData(color: AppColors.textDark),
 //       ),
 //       body: SafeArea(
 //         child: Column(
@@ -134,7 +134,7 @@
 //                     decoration: BoxDecoration(
 //                       color: Colors.white,
 //                       borderRadius: BorderRadius.circular(14),
-//                       boxShadow: const [
+//                       boxShadow: [
 //                         BoxShadow(
 //                           color: AppColors.shadow,
 //                           blurRadius: 10,
@@ -151,18 +151,18 @@
 //                             color: AppColors.primary.withOpacity(0.12),
 //                             shape: BoxShape.circle,
 //                           ),
-//                           child: const Icon(Icons.groups_rounded,
+//                           child: Icon(Icons.groups_rounded,
 //                               color: AppColors.primary),
 //                         ),
 //                         const SizedBox(width: 12),
 //                         Expanded(
 //                           child: TextField(
 //                             controller: _groupNameController,
-//                             style: const TextStyle(
+//                             style: TextStyle(
 //                               color: AppColors.textDark,
 //                               fontWeight: FontWeight.w600,
 //                             ),
-//                             decoration: const InputDecoration(
+//                             decoration: InputDecoration(
 //                               hintText: 'Group name',
 //                               hintStyle: TextStyle(color: AppColors.icon),
 //                               border: InputBorder.none,
@@ -219,7 +219,7 @@
 //                                             onTap: () => _toggleUser(user.id, false),
 //                                             child: Container(
 //                                               padding: const EdgeInsets.all(2),
-//                                               decoration: const BoxDecoration(
+//                                               decoration: BoxDecoration(
 //                                                 color: AppColors.textGrey,
 //                                                 shape: BoxShape.circle,
 //                                               ),
@@ -238,7 +238,7 @@
 //                                         maxLines: 1,
 //                                         overflow: TextOverflow.ellipsis,
 //                                         textAlign: TextAlign.center,
-//                                         style: const TextStyle(
+//                                         style: TextStyle(
 //                                           fontSize: 11.5,
 //                                           color: AppColors.textDark,
 //                                         ),
@@ -257,7 +257,7 @@
 //                   ],
 //                   Row(
 //                     children: [
-//                       const Text(
+//                       Text(
 //                         'Select members',
 //                         style: TextStyle(
 //                           color: AppColors.textDark,
@@ -276,7 +276,7 @@
 //                           ),
 //                           child: Text(
 //                             '$count selected',
-//                             style: const TextStyle(
+//                             style: TextStyle(
 //                               color: AppColors.primary,
 //                               fontSize: 11.5,
 //                               fontWeight: FontWeight.w600,
@@ -302,7 +302,7 @@
 //                         decoration: BoxDecoration(
 //                           color: Colors.white,
 //                           borderRadius: BorderRadius.circular(18),
-//                           boxShadow: const [
+//                           boxShadow: [
 //                             BoxShadow(
 //                               color: AppColors.shadow,
 //                               blurRadius: 14,
@@ -316,7 +316,7 @@
 //                           physics: const NeverScrollableScrollPhysics(),
 //                           padding: const EdgeInsets.symmetric(vertical: 6),
 //                           itemCount: users.length,
-//                           separatorBuilder: (_, __) => const Divider(
+//                           separatorBuilder: (_, __) => Divider(
 //                             height: 1,
 //                             indent: 72,
 //                             color: AppColors.divider,
@@ -357,7 +357,7 @@
 //                                           children: [
 //                                             Text(
 //                                               user.name,
-//                                               style: const TextStyle(
+//                                               style: TextStyle(
 //                                                 color: AppColors.textDark,
 //                                                 fontWeight: FontWeight.w600,
 //                                                 fontSize: 15,
@@ -368,7 +368,7 @@
 //                                               user.email,
 //                                               maxLines: 1,
 //                                               overflow: TextOverflow.ellipsis,
-//                                               style: const TextStyle(
+//                                               style: TextStyle(
 //                                                 color: AppColors.textGrey,
 //                                                 fontSize: 12.5,
 //                                               ),
@@ -406,7 +406,7 @@
 //                         ),
 //                       );
 //                     },
-//                     loading: () => const Padding(
+//                     loading: () => Padding(
 //                       padding: EdgeInsets.symmetric(vertical: 30),
 //                       child: Center(
 //                         child: CircularProgressIndicator(color: AppColors.primary),
@@ -496,20 +496,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   // Keep track of which user ids are checked/selected
   final List<String> _selectedUserIds = [];
 
-  static const List<Color> _avatarPalette = [
-    Color(0xFF3CB67C),
-    Color(0xFF6C63FF),
-    Color(0xFFFF7A59),
-    Color(0xFF3B9AE1),
-    Color(0xFFE55C8A),
-    Color(0xFFF2B84B),
-  ];
-
-  Color _colorForName(String name) {
-    if (name.isEmpty) return _avatarPalette.first;
-    final index = name.codeUnitAt(0) % _avatarPalette.length;
-    return _avatarPalette[index];
-  }
+  Color _colorForName(String name) => AppColors.avatarFor(name);
 
   @override
   void dispose() {
@@ -577,7 +564,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     final usersAsync = ref.watch(allUsersProvider);
     final count = _selectedUserIds.length;
     // Colors of the currently selected theme
-    final p = ref.watch(themeProvider).preset;
+    final p = ref.watch(themeProvider).palette;
 
     return Scaffold(
       backgroundColor: p.background,
@@ -604,7 +591,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                     decoration: BoxDecoration(
                       color: p.surface,
                       borderRadius: BorderRadius.circular(14),
-                      boxShadow: const [
+                      boxShadow: [
                         BoxShadow(
                           color: AppColors.shadow,
                           blurRadius: 10,
@@ -774,7 +761,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                         decoration: BoxDecoration(
                           color: p.surface,
                           borderRadius: BorderRadius.circular(18),
-                          boxShadow: const [
+                          boxShadow: [
                             BoxShadow(
                               color: AppColors.shadow,
                               blurRadius: 14,

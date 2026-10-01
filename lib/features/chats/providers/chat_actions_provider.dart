@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,9 +6,27 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../Auto Clear Chat/auto_service.dart';
+import '../../../core/notification/push_notifier.dart';
 
 class ChatActions {
   final supabase = Supabase.instance.client;
+
+  /// Insert a message then notify other members (non-blocking).
+  Future<String> _insertAndNotify(Map<String, dynamic> row) async {
+    final inserted = await supabase
+        .from('messages')
+        .insert(row)
+        .select('id')
+        .single();
+    final messageId = inserted['id'] as String;
+    final chatId = row['chat_id'] as String;
+    // Don't await — sending should feel instant.
+    unawaited(PushNotifier.notifyNewMessage(
+      chatId: chatId,
+      messageId: messageId,
+    ));
+    return messageId;
+  }
 
   Future<void> sendFileMessage({
     required String chatId,
@@ -21,7 +40,7 @@ class ChatActions {
         supabase.storage.from('chat-media').getPublicUrl(storagePath);
     final expiresAt = await AutoClearService().calculateExpiry(chatId);
 
-    await supabase.from('messages').insert({
+    await _insertAndNotify({
       'chat_id': chatId,
       'sender_id': currentUserId,
       'message_type': 'file',
@@ -49,7 +68,7 @@ class ChatActions {
       durationSecondsToStore = liveDurationMinutes * 60;
     }
 
-    await supabase.from('messages').insert({
+    await _insertAndNotify({
       'chat_id': chatId,
       'sender_id': currentUserId,
       'message_type': 'location',
@@ -75,7 +94,7 @@ class ChatActions {
     final currentUserId = supabase.auth.currentUser!.id;
     final expiresAt = await AutoClearService().calculateExpiry(targetChatId);
 
-    await supabase.from('messages').insert({
+    await _insertAndNotify({
       'chat_id': targetChatId,
       'sender_id': currentUserId,
       'message_type': message.messageType,
@@ -87,7 +106,6 @@ class ChatActions {
     });
   }
 
-  /// Find or create a 1:1 chat (atomic server-side RPC).
   Future<String> getOrCreateChat(String otherUserId) async {
     final chatId = await supabase.rpc(
       'get_or_create_dm',
@@ -96,7 +114,6 @@ class ChatActions {
     return chatId as String;
   }
 
-  /// Create a group with the current user as owner.
   Future<String> createGroupChat({
     required String groupName,
     required List<String> memberIds,
@@ -114,20 +131,21 @@ class ChatActions {
   Future<void> sendMessage({
     required String chatId,
     required String content,
+    String? replyToId,
   }) async {
     final currentUserId = supabase.auth.currentUser!.id;
     final expiresAt = await AutoClearService().calculateExpiry(chatId);
 
-    await supabase.from('messages').insert({
+    await _insertAndNotify({
       'chat_id': chatId,
       'sender_id': currentUserId,
       'content': content,
       'status': 'sent',
       'expires_at': expiresAt?.toIso8601String(),
+      if (replyToId != null) 'reply_to_id': replyToId,
     });
   }
 
-  /// Per-member read cursor (does not mutate shared message.status).
   Future<void> markMessagesAsRead(String chatId) async {
     await supabase.rpc('mark_chat_read', params: {'p_chat_id': chatId});
   }
@@ -142,7 +160,6 @@ class ChatActions {
     }).eq('id', messageId);
   }
 
-  /// Soft-delete so chat preview trigger can recompute cleanly.
   Future<void> deleteMessage(String messageId) async {
     await supabase.from('messages').update({
       'deleted_at': DateTime.now().toUtc().toIso8601String(),
@@ -177,7 +194,7 @@ class ChatActions {
     final publicUrl =
         supabase.storage.from('chat-media').getPublicUrl(storagePath);
 
-    await supabase.from('messages').insert({
+    await _insertAndNotify({
       'chat_id': chatId,
       'sender_id': currentUserId,
       'message_type': 'image',
@@ -206,13 +223,13 @@ class ChatActions {
     final publicUrl =
         supabase.storage.from('chat-media').getPublicUrl(storagePath);
 
-    await supabase.from('messages').insert({
+    await _insertAndNotify({
       'chat_id': chatId,
       'sender_id': currentUserId,
       'message_type': 'voice',
       'media_url': publicUrl,
+      'content': '🎤 Voice message ($durationText)',
       'duration_seconds': durationSeconds,
-      'content': durationText,
       'status': 'sent',
       'expires_at': expiresAt?.toIso8601String(),
     });

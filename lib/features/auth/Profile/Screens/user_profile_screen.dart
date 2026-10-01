@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../../core/navigation/app_nav.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/theme_provider.dart';
 import '../../../../core/shared/widgets/app_skeletons.dart';
 import '../../../../core/shared/widgets/user_avatar.dart';
 import '../../../../core/utils/app_haptics.dart';
@@ -20,19 +22,14 @@ class UserProfileScreen extends ConsumerWidget {
     this.fallbackName,
   });
 
-  static const _bg = Color(0xFFF0F2F5);
-  static const _ink = Color(0xFF111B21);
-  static const _muted = Color(0xFF667781);
-  static const _card = Colors.white;
-  static const _accent = Color(0xFF008069);
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(themeProvider);
     final profileAsync = ref.watch(userProfileProvider(userId));
     final topPad = MediaQuery.paddingOf(context).top;
 
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: AppColors.chatBackground,
       body: profileAsync.when(
         loading: () => AppSkeletons.profile(),
         error: (err, _) => Center(child: Text('Could not load profile\n$err')),
@@ -145,11 +142,11 @@ class UserProfileScreen extends ConsumerWidget {
                         icon: Icons.mail_outline_rounded,
                       ),
                     if (phone.isEmpty && email.isEmpty)
-                      const Padding(
+                      Padding(
                         padding: EdgeInsets.fromLTRB(18, 18, 18, 18),
                         child: Text(
                           'No phone or email on this profile yet.',
-                          style: TextStyle(color: _muted, fontSize: 14),
+                          style: TextStyle(color: AppColors.textGrey, fontSize: 14),
                         ),
                       ),
                   ],
@@ -159,12 +156,12 @@ class UserProfileScreen extends ConsumerWidget {
               SliverToBoxAdapter(
                 child: _SectionCard(
                   children: [
-                    const Padding(
+                    Padding(
                       padding: EdgeInsets.fromLTRB(18, 14, 18, 4),
                       child: Text(
                         'About',
                         style: TextStyle(
-                          color: _accent,
+                          color: AppColors.primary,
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
                         ),
@@ -174,8 +171,8 @@ class UserProfileScreen extends ConsumerWidget {
                       padding: const EdgeInsets.fromLTRB(18, 0, 18, 6),
                       child: Text(
                         about,
-                        style: const TextStyle(
-                          color: _ink,
+                        style: TextStyle(
+                          color: AppColors.textMain,
                           fontSize: 16,
                           height: 1.35,
                         ),
@@ -186,7 +183,7 @@ class UserProfileScreen extends ConsumerWidget {
                         padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
                         child: Text(
                           'Joined ${DateFormat.yMMMMd().format(createdAt.toLocal())}',
-                          style: const TextStyle(color: _muted, fontSize: 13),
+                          style: TextStyle(color: AppColors.textGrey, fontSize: 13),
                         ),
                       )
                     else
@@ -210,13 +207,13 @@ class _FallbackHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: const Color(0xFFDFE5E7),
+      color: AppColors.surface,
       child: Center(
         child: UserAvatar(
           name: name,
           radius: 64,
-          backgroundColor: const Color(0xFFCFD8DC),
-          foregroundColor: const Color(0xFF546E7A),
+          backgroundColor: AppColors.secondary,
+          foregroundColor: AppColors.primary,
         ),
       ),
     );
@@ -257,7 +254,7 @@ class _SectionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      color: UserProfileScreen._card,
+      color: AppColors.surface,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: children,
@@ -274,7 +271,7 @@ class _Hairline extends StatelessWidget {
       height: 1,
       thickness: 0.6,
       indent: 70,
-      color: Colors.grey.shade200,
+      color: AppColors.divider,
     );
   }
 }
@@ -300,10 +297,10 @@ class _ContactRow extends StatelessWidget {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: const Color(0xFFEFF6F4),
+              color: AppColors.secondary,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, color: UserProfileScreen._accent, size: 20),
+            child: Icon(icon, color: AppColors.primary, size: 20),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -312,8 +309,8 @@ class _ContactRow extends StatelessWidget {
               children: [
                 Text(
                   value,
-                  style: const TextStyle(
-                    color: UserProfileScreen._ink,
+                  style: TextStyle(
+                    color: AppColors.textMain,
                     fontSize: 16.5,
                     fontWeight: FontWeight.w500,
                   ),
@@ -321,8 +318,8 @@ class _ContactRow extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   label,
-                  style: const TextStyle(
-                    color: UserProfileScreen._muted,
+                  style: TextStyle(
+                    color: AppColors.textGrey,
                     fontSize: 13,
                   ),
                 ),
