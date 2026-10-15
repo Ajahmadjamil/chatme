@@ -1,7 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/theme_provider.dart';
 import '../../../core/utils/app_haptics.dart';
 import '../../voice/provider/voice_player_provider.dart';
 
@@ -49,7 +49,11 @@ class VoiceMessagePlayer extends ConsumerWidget {
 
     final barHeights = _generateBarHeights();
 
-    final accentColor = AppColors.primary;
+    final p = ref.watch(themeProvider).preset;
+    // My bubble: use the bubble text color (always readable on my bubble)
+    final accentColor = isMe ? p.myBubbleText : p.primary;
+    // Color of the play/pause icon inside the round button
+    final buttonIconColor = isMe ? p.myBubble : p.onPrimary;
     final playedBarColor = accentColor;
     final unplayedBarColor = accentColor.withOpacity(0.3);
 
@@ -77,7 +81,7 @@ class VoiceMessagePlayer extends ConsumerWidget {
               backgroundColor: accentColor,
               child: Icon(
                 player.isPlaying ? Icons.pause : Icons.play_arrow,
-                color: Colors.white,
+                color: buttonIconColor,
                 size: 20,
               ),
             ),
@@ -129,7 +133,10 @@ class VoiceMessagePlayer extends ConsumerWidget {
                 const SizedBox(height: 2),
                 Text(
                   displayTime,
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isMe ? p.myBubbleText.withOpacity(0.7) : p.textGrey,
+                  ),
                 ),
               ],
             ),

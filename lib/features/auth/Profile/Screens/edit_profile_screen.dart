@@ -2,17 +2,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../../../core/shared/widgets/app_skeletons.dart';
 import '../../../../core/shared/widgets/custom_button.dart';
 import '../../../../core/shared/widgets/custom_text_field.dart';
-import '../../../../core/shared/widgets/user_avatar.dart';
-import '../../../../core/theme/app_colors.dart';
+import '../../../../core/shared/widgets/avatar_viewer_screen.dart';
+import '../../../../core/theme/theme_provider.dart';
+import '../../../../core/utils/page_transitions.dart';
 import '../../widget/auth_header.dart';
 import '../provider.dart';
-import 'package:skeletonizer/skeletonizer.dart';
-import 'full_avatar_view.dart';
-import 'avatar_crop_screen.dart';
-import '../../../../core/navigation/app_nav.dart';
 
 class EditProfileScreen extends ConsumerStatefulWidget {
   const EditProfileScreen({super.key});
@@ -23,8 +19,10 @@ class EditProfileScreen extends ConsumerStatefulWidget {
 
 class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   final _nameController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _aboutController = TextEditingController();
+  final _usernameController = TextEditingController();
+  final _bioController = TextEditingController();
+  final _emailController = TextEditingController();
+
   bool _loadedOnce = false;
   bool _isSaving = false;
   bool _isUploadingAvatar = false;
@@ -32,31 +30,35 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   @override
   void dispose() {
     _nameController.dispose();
-    _phoneController.dispose();
-    _aboutController.dispose();
+    _usernameController.dispose();
+    _bioController.dispose();
+    _emailController.dispose();
     super.dispose();
   }
 
-  // Gallery → locked 1:1 crop → upload
+  // Tapping the photo itself: just VIEW it full-screen (no edit here)
+  void _viewAvatar(String? avatarUrl) {
+    if (avatarUrl == null) return;
+    Navigator.push(
+      context,
+      PageTransitions.fadeTransition(
+        AvatarViewerScreen(
+          imageUrl: avatarUrl,
+          title: _nameController.text,
+        ),
+      ),
+    );
+  }
+
+  // Tapping the small camera/pencil icon: pick a new photo and upload it
   Future<void> _pickAndUploadAvatar() async {
     final picker = ImagePicker();
-    final picked = await picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 95,
-      maxWidth: 2048,
-      maxHeight: 2048,
-    );
-    if (picked == null || !mounted) return;
-
-    final cropped = await AppNav.push<File>(
-      context,
-      AvatarCropScreen(imageFile: File(picked.path)),
-    );
-    if (cropped == null || !mounted) return;
+    final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    if (picked == null) return;
 
     setState(() => _isUploadingAvatar = true);
     try {
-      await ref.read(profileActionsProvider).updateAvatar(cropped);
+      await ref.read(profileActionsProvider).updateAvatar(File(picked.path));
       ref.invalidate(myProfileProvider);
     } catch (e) {
       if (mounted) {
@@ -73,15 +75,19 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     try {
       await ref.read(profileActionsProvider).updateProfile(
         name: _nameController.text.trim(),
-        phone: _phoneController.text.trim(),
-        about: _aboutController.text.trim(),
+        username: _usernameController.text.trim(),
+        bio: _bioController.text.trim(),
       );
+
       ref.invalidate(myProfileProvider);
-      if (mounted) Navigator.pop(context);
+      if (!mounted) return;
+      Navigator.pop(context);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed to save: $e')));
+        final msg = e.toString().contains('duplicate')
+            ? 'This username is already taken'
+            : 'Failed to save: $e';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -91,22 +97,22 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final profileAsync = ref.watch(myProfileProvider);
-    final headerColor = AppColors.primary;
+    final p = ref.watch(themeProvider).preset;
+    final headerColor = p.primary;
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: p.background,
       body: Center(
         child: SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
             child: profileAsync.when(
               data: (profile) {
-                // Fill the fields once, the first time data arrives
                 if (!_loadedOnce) {
                   _nameController.text = (profile['name'] as String?) ?? '';
-                  _phoneController.text = (profile['phone'] as String?) ?? '';
-                  _aboutController.text = (profile['about'] as String?) ??
-                      'Hey there! I am using ChatMe.';
+                  _usernameController.text = (profile['username'] as String?) ?? '';
+                  _bioController.text = (profile['bio'] as String?) ?? '';
+                  _emailController.text = (profile['email'] as String?) ?? '';
                   _loadedOnce = true;
                 }
                 final avatarUrl = profile['avatar_url'] as String?;
@@ -120,25 +126,26 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                       subtitle: 'Update your photo and personal details.',
                     ),
 
-                    // ---- Avatar with an edit button on top ----
+                    // ---- Avatar: tap photo to VIEW, tap pencil to EDIT ----
                     Stack(
                       children: [
                         GestureDetector(
-                          onTap: avatarUrl == null
-                              ? null
-                              : () => AppNav.fade(
-                                    context,
-                                    FullAvatarView(
-                                      imageUrl: avatarUrl,
-                                      title: name,
-                                    ),
-                                  ),
-                          child: UserAvatar(
-                            name: name,
-                            avatarUrl: avatarUrl,
+                          onTap: () => _viewAvatar(avatarUrl),
+                          child: CircleAvatar(
                             radius: 50,
                             backgroundColor: headerColor.withOpacity(0.15),
-                            foregroundColor: headerColor,
+                            backgroundImage:
+                            avatarUrl != null ? NetworkImage(avatarUrl) : null,
+                            child: avatarUrl == null
+                                ? Text(
+                              name.isNotEmpty ? name[0].toUpperCase() : '?',
+                              style: TextStyle(
+                                fontSize: 36,
+                                fontWeight: FontWeight.bold,
+                                color: headerColor,
+                              ),
+                            )
+                                : null,
                           ),
                         ),
                         Positioned(
@@ -150,18 +157,14 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                               radius: 16,
                               backgroundColor: headerColor,
                               child: _isUploadingAvatar
-                                  ? Skeletonizer(
-                                      enabled: true,
-                                      effect: const ShimmerEffect(
-                                        baseColor: Color(0x33FFFFFF),
-                                        highlightColor: Color(0x66FFFFFF),
-                                      ),
-                                      child: const Icon(
-                                        Icons.camera_alt,
-                                        size: 16,
-                                        color: Colors.white,
-                                      ),
-                                    )
+                                  ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
                                   : const Icon(Icons.camera_alt, size: 16, color: Colors.white),
                             ),
                           ),
@@ -177,18 +180,31 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                     ),
                     const SizedBox(height: 18),
                     CustomTextField(
-                      controller: _phoneController,
-                      hintText: 'Phone',
-                      prefixIcon: Icons.phone_outlined,
-                      keyboardType: TextInputType.phone,
+                      controller: _usernameController,
+                      hintText: 'Username',
+                      prefixIcon: Icons.alternate_email,
                     ),
                     const SizedBox(height: 18),
                     CustomTextField(
-                      controller: _aboutController,
-                      hintText: 'About',
+                      controller: _bioController,
+                      hintText: 'Bio',
                       prefixIcon: Icons.info_outline,
-                      maxLines: 3,
-                      maxLength: 140,
+                    ),
+                    const SizedBox(height: 18),
+                    // Email comes from the Google account, so it is read-only
+                    CustomTextField(
+                      controller: _emailController,
+                      hintText: 'Email',
+                      prefixIcon: Icons.mail_outline,
+                      readOnly: true,
+                    ),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Your email is managed by your Google account.',
+                        style: TextStyle(fontSize: 11.5, color: p.textGrey),
+                      ),
                     ),
                     const SizedBox(height: 32),
 
@@ -201,7 +217,10 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                   ],
                 );
               },
-              loading: () => AppSkeletons.editProfileForm(),
+              loading: () => const Padding(
+                padding: EdgeInsets.only(top: 100),
+                child: Center(child: CircularProgressIndicator()),
+              ),
               error: (err, stack) => Padding(
                 padding: const EdgeInsets.only(top: 100),
                 child: Center(child: Text('Error: $err')),

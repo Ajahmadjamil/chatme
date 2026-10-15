@@ -1,78 +1,57 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
-import '../../theme/app_colors.dart';
-import '../../theme/glass.dart';
-import '../../utils/app_haptics.dart';
-import 'user_avatar.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../theme/theme_provider.dart';
+import 'avatar_viewer_screen.dart';
 
 class ChatUi {
-  static Color get ink => AppColors.textMain;
-  static Color get muted => AppColors.textGrey;
-  static Color get line => AppColors.divider;
-  static Color get surface => AppColors.surface;
-  static Color get accent => AppColors.accent;
-  // Never map this to glass header fill — that made icons/text vanish.
-  static Color get accentDark => AppColors.primary;
+  static const Color ink = Color(0xFF111B21);
+  static const Color muted = Color(0xFF667781);
+  static const Color line = Color(0xFFEDEFF0);
+  static const Color surface = Color(0xFFF3F5F4);
+  static const Color accent = Color(0xFF25D366);
+  static const Color accentDark = Color(0xFF075E54);
 
-  static Widget sliverHeader(
-    String title, {
-    List<Widget>? actions,
-  }) {
-    final glass = AppColors.isGlass;
-    final titleStyle = TextStyle(
-      color: ink,
-      fontSize: 22,
-      fontWeight: FontWeight.w800,
-      letterSpacing: -0.6,
-    );
+  static Widget sliverHeader(String title, {List<Widget>? actions}) {
+    // Consumer lets this static method read the selected theme
+    return Consumer(
+      builder: (context, ref, _) {
+        final p = ref.watch(themeProvider).preset;
 
-    if (glass) {
-      return SliverAppBar(
-        pinned: true,
-        floating: false,
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        toolbarHeight: 56,
-        actions: actions,
-        systemOverlayStyle: (AppColors.isDark
-                ? SystemUiOverlayStyle.light
-                : SystemUiOverlayStyle.dark)
-            .copyWith(statusBarColor: Colors.transparent),
-        flexibleSpace: const GlassImmersiveBar(),
-        title: Align(
-          alignment: Alignment.centerLeft,
-          child: Padding(
-            padding: const EdgeInsets.only(left: 4),
-            child: Text(title, style: titleStyle),
+        return SliverAppBar(
+          pinned: true,
+          centerTitle: false,
+          titleSpacing: 20,
+          toolbarHeight: 60,
+          backgroundColor: p.surface,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          // Light status bar icons on dark theme, dark icons on light theme
+          systemOverlayStyle: p.brightness == Brightness.dark
+              ? SystemUiOverlayStyle.light
+              : SystemUiOverlayStyle.dark,
+          title: Text(
+            title,
+            style: TextStyle(
+              color: p.textMain,
+              fontSize: 30,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.8,
+            ),
           ),
-        ),
-      );
-    }
-
-    return SliverAppBar(
-      pinned: true,
-      floating: false,
-      backgroundColor: AppColors.background,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      scrolledUnderElevation: 0,
-      toolbarHeight: 48,
-      expandedHeight: 68,
-      actions: actions,
-      flexibleSpace: FlexibleSpaceBar(
-        expandedTitleScale: 1.35,
-        titlePadding: const EdgeInsetsDirectional.only(start: 20, bottom: 10),
-        title: Text(title, style: titleStyle),
-      ),
+          actions: [
+            ...?actions,
+            const SizedBox(width: 8),
+          ],
+        );
+      },
     );
   }
 }
 
 // ---------- Search field ----------
-class ChatSearchField extends StatelessWidget {
+class ChatSearchField extends ConsumerWidget {
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
   final String hint;
@@ -85,56 +64,49 @@ class ChatSearchField extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final field = TextField(
-      controller: controller,
-      onChanged: onChanged,
-      textInputAction: TextInputAction.search,
-      style: TextStyle(fontSize: 15, color: ChatUi.ink),
-      decoration: InputDecoration(
-        hintText: hint,
-        hintStyle: TextStyle(color: ChatUi.muted, fontSize: 15),
-        prefixIcon: Icon(Icons.search_rounded, color: ChatUi.muted),
-        suffixIcon: ValueListenableBuilder<TextEditingValue>(
-          valueListenable: controller,
-          builder: (_, value, __) {
-            if (value.text.isEmpty) return const SizedBox.shrink();
-            return IconButton(
-              icon: Icon(Icons.close_rounded, size: 20, color: ChatUi.muted),
-              onPressed: () {
-                controller.clear();
-                onChanged('');
-              },
-            );
-          },
-        ),
-        filled: !AppColors.isGlass,
-        fillColor: ChatUi.surface,
-        isDense: true,
-        contentPadding: const EdgeInsets.symmetric(vertical: 12),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide.none,
-        ),
-      ),
-    );
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = ref.watch(themeProvider).preset;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-      child: AppColors.isGlass
-          ? GlassCard(
-              borderRadius: const BorderRadius.all(Radius.circular(16)),
-              shadow: false,
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: field,
-            )
-          : field,
+      child: TextField(
+        controller: controller,
+        onChanged: onChanged,
+        textInputAction: TextInputAction.search,
+        style: TextStyle(fontSize: 15, color: p.textMain),
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: TextStyle(color: p.textGrey, fontSize: 15),
+          prefixIcon: Icon(Icons.search_rounded, color: p.textGrey),
+          suffixIcon: ValueListenableBuilder<TextEditingValue>(
+            valueListenable: controller,
+            builder: (_, value, __) {
+              if (value.text.isEmpty) return const SizedBox.shrink();
+              return IconButton(
+                icon: Icon(Icons.close_rounded, size: 20, color: p.textGrey),
+                onPressed: () {
+                  controller.clear();
+                  onChanged('');
+                },
+              );
+            },
+          ),
+          filled: true,
+          fillColor: p.inputField,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide.none,
+          ),
+        ),
+      ),
     );
   }
 }
 
-// ---------- Filter chips ----------
-class ChatFilterChips extends StatelessWidget {
+//  Filter chips
+class ChatFilterChips extends ConsumerWidget {
   final List<String> labels;
   final int selected;
   final ValueChanged<int> onSelected;
@@ -147,7 +119,9 @@ class ChatFilterChips extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = ref.watch(themeProvider).preset;
+
     return SizedBox(
       height: 38,
       child: ListView.separated(
@@ -158,16 +132,13 @@ class ChatFilterChips extends StatelessWidget {
         itemBuilder: (_, i) {
           final bool isSelected = i == selected;
           return GestureDetector(
-            onTap: () {
-              AppHaptics.select();
-              onSelected(i);
-            },
+            onTap: () => onSelected(i),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               padding: const EdgeInsets.symmetric(horizontal: 16),
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: isSelected ? ChatUi.accentDark : ChatUi.surface,
+                color: isSelected ? p.header : p.inputField,
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
@@ -175,7 +146,7 @@ class ChatFilterChips extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w600,
-                  color: isSelected ? AppColors.onPrimary : ChatUi.muted,
+                  color: isSelected ? Colors.white : p.textGrey,
                 ),
               ),
             ),
@@ -186,20 +157,18 @@ class ChatFilterChips extends StatelessWidget {
   }
 }
 
-// ---------- Chat tile ----------
-class ChatTile extends StatelessWidget {
+//  Chat tile
+class ChatTile extends ConsumerWidget {
   final String name;
   final String? lastMessage;
   final String? time;
   final int unreadCount;
   final bool isGroup;
-  final Color avatarColor;
   final String? avatarUrl;
-  final Object? avatarHeroTag;
-  final int index; // sirf halki entry animation ke liye
+  final Color avatarColor;
+  final int index;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
-  final VoidCallback? onAvatarTap;
 
   const ChatTile({
     super.key,
@@ -209,17 +178,17 @@ class ChatTile extends StatelessWidget {
     required this.unreadCount,
     required this.isGroup,
     required this.avatarColor,
-    this.avatarUrl,
-    this.avatarHeroTag,
     required this.onTap,
     this.index = 0,
     this.onLongPress,
-    this.onAvatarTap,
+    this.avatarUrl,
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = ref.watch(themeProvider).preset;
     final bool hasUnread = unreadCount > 0;
+    final bool hasAvatar = avatarUrl != null && avatarUrl!.isNotEmpty;
     final String badge = unreadCount > 99 ? '99+' : '$unreadCount';
     final int ms = 220 + (index < 10 ? index : 10) * 40;
 
@@ -231,62 +200,61 @@ class ChatTile extends StatelessWidget {
         opacity: t,
         child: Transform.translate(offset: Offset(0, (1 - t) * 12), child: child),
       ),
-      child: _TileSurface(
-        onTap: () {
-          AppHaptics.tap();
-          onTap();
-        },
-        onLongPress: onLongPress == null
-            ? null
-            : () {
-                AppHaptics.medium();
-                onLongPress!();
-              },
+      child: InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
         child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: AppColors.isGlass ? 14 : 20,
-            vertical: 12,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           child: Row(
             children: [
-              // Avatar (unread ho to green ring) — tap opens photo preview
               GestureDetector(
-                onTap: onAvatarTap == null
-                    ? null
-                    : () {
-                        AppHaptics.light();
-                        onAvatarTap!();
-                      },
-                behavior: HitTestBehavior.opaque,
+                onTap: hasAvatar
+                    ? () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AvatarViewerScreen(
+                      imageUrl: avatarUrl!,
+                      title: name,
+                    ),
+                  ),
+                )
+                    : null,
                 child: Container(
                   padding: const EdgeInsets.all(2),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: hasUnread ? ChatUi.accent : Colors.transparent,
+                      color: hasUnread ? p.accent : Colors.transparent,
                       width: 2,
                     ),
                   ),
-                  child: avatarHeroTag == null
-                      ? UserAvatar(
-                          name: name,
-                          avatarUrl: isGroup ? null : avatarUrl,
-                          radius: 24,
-                          backgroundColor: avatarColor.withOpacity(0.14),
-                          foregroundColor: avatarColor,
-                          fallbackIcon: isGroup ? Icons.groups_rounded : null,
-                        )
-                      : Hero(
-                          tag: avatarHeroTag!,
-                          child: UserAvatar(
-                            name: name,
-                            avatarUrl: isGroup ? null : avatarUrl,
-                            radius: 24,
-                            backgroundColor: avatarColor.withOpacity(0.14),
-                            foregroundColor: avatarColor,
-                            fallbackIcon: isGroup ? Icons.groups_rounded : null,
-                          ),
-                        ),
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: avatarColor.withOpacity(0.14),
+                      shape: BoxShape.circle,
+                      image: hasAvatar
+                          ? DecorationImage(
+                        image: NetworkImage(avatarUrl!),
+                        fit: BoxFit.cover,
+                      )
+                          : null,
+                    ),
+                    alignment: Alignment.center,
+                    child: hasAvatar
+                        ? null
+                        : isGroup
+                        ? Icon(Icons.groups_rounded, color: avatarColor, size: 24)
+                        : Text(
+                      name.isNotEmpty ? name[0].toUpperCase() : '?',
+                      style: TextStyle(
+                        color: avatarColor,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(width: 14),
@@ -301,7 +269,7 @@ class ChatTile extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: ChatUi.ink,
+                        color: p.textMain,
                         fontSize: 16,
                         fontWeight:
                         hasUnread ? FontWeight.w700 : FontWeight.w600,
@@ -313,7 +281,7 @@ class ChatTile extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: hasUnread ? ChatUi.ink : ChatUi.muted,
+                        color: hasUnread ? p.textMain : p.textGrey,
                         fontSize: 14,
                         fontWeight:
                         hasUnread ? FontWeight.w500 : FontWeight.normal,
@@ -337,7 +305,7 @@ class ChatTile extends StatelessWidget {
                       time!,
                       style: TextStyle(
                         fontSize: 12,
-                        color: hasUnread ? ChatUi.accentDark : ChatUi.muted,
+                        color: hasUnread ? p.primary : p.textGrey,
                         fontWeight:
                         hasUnread ? FontWeight.w700 : FontWeight.normal,
                       ),
@@ -349,14 +317,14 @@ class ChatTile extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: ChatUi.accent,
+                        color: p.accent,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
                         badge,
                         textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: AppColors.onPrimary,
+                        style: const TextStyle(
+                          color: Colors.white,
                           fontSize: 11.5,
                           fontWeight: FontWeight.w700,
                         ),
@@ -373,49 +341,20 @@ class ChatTile extends StatelessWidget {
   }
 }
 
-/// Glass themes: each row is its own inset glass card (text never sits on the
-/// raw gradient). Solid themes: classic full-bleed row with ink.
-class _TileSurface extends StatelessWidget {
-  final VoidCallback onTap;
-  final VoidCallback? onLongPress;
-  final Widget child;
-
-  const _TileSurface({
-    required this.onTap,
-    required this.onLongPress,
-    required this.child,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (!AppColors.isGlass) {
-      return InkWell(onTap: onTap, onLongPress: onLongPress, child: child);
-    }
-    return GlassCard(
-      margin: const EdgeInsets.symmetric(horizontal: 12),
-      borderRadius: const BorderRadius.all(Radius.circular(20)),
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: child,
-    );
-  }
-}
-
-class ChatDivider extends StatelessWidget {
+class ChatDivider extends ConsumerWidget {
   const ChatDivider({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    // Glass rows are separate cards — a gap reads better than a hairline.
-    if (AppColors.isGlass) return const SizedBox(height: 8);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = ref.watch(themeProvider).preset;
+
     // 20 (padding) + 56 (avatar) + 14 (gap) = 90
-    return Divider(
-        height: 1, thickness: 1, indent: 90, color: ChatUi.line);
+    return Divider(height: 1, thickness: 1, indent: 90, color: p.divider);
   }
 }
 
-// ---------- Empty / Error ----------
-class ChatEmptyState extends StatelessWidget {
+// Empty / Error
+class ChatEmptyState extends ConsumerWidget {
   final IconData icon;
   final String title;
   final String subtitle;
@@ -428,13 +367,8 @@ class ChatEmptyState extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    // Prefer Theme colorScheme so empty states stay readable even if a
-    // static facade briefly lags a theme switch.
-    final scheme = Theme.of(context).colorScheme;
-    final titleColor = scheme.onSurface;
-    final subtitleColor = scheme.onSurface.withValues(alpha: 0.72);
-    final accent = scheme.primary;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = ref.watch(themeProvider).preset;
 
     return Center(
       child: Padding(
@@ -446,16 +380,16 @@ class ChatEmptyState extends StatelessWidget {
               width: 88,
               height: 88,
               decoration: BoxDecoration(
-                color: accent.withValues(alpha: 0.18),
+                color: p.accent.withOpacity(0.10),
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, size: 40, color: accent),
+              child: Icon(icon, size: 40, color: p.primary),
             ),
             const SizedBox(height: 18),
             Text(
               title,
               style: TextStyle(
-                color: titleColor,
+                color: p.textMain,
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
               ),
@@ -465,7 +399,7 @@ class ChatEmptyState extends StatelessWidget {
               subtitle,
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: subtitleColor,
+                color: p.textGrey,
                 fontSize: 14,
                 height: 1.4,
               ),
@@ -477,12 +411,14 @@ class ChatEmptyState extends StatelessWidget {
   }
 }
 
-class ChatErrorState extends StatelessWidget {
+class ChatErrorState extends ConsumerWidget {
   final Object error;
   const ChatErrorState({super.key, required this.error});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = ref.watch(themeProvider).preset;
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 40),
@@ -495,7 +431,7 @@ class ChatErrorState extends StatelessWidget {
             Text(
               'Something went wrong',
               style: TextStyle(
-                color: ChatUi.ink,
+                color: p.textMain,
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
               ),
@@ -506,7 +442,7 @@ class ChatErrorState extends StatelessWidget {
               textAlign: TextAlign.center,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: ChatUi.muted, fontSize: 13),
+              style: TextStyle(color: p.textGrey, fontSize: 13),
             ),
           ],
         ),

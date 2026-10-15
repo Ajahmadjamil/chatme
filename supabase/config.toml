@@ -1,0 +1,14 @@
+project_id = "iwkeqytdmkaqcecyqlzc"
+
+[functions.push-new-message]
+enabled = true
+verify_jwt = false
+import_map = "./functions/push-new-message/deno.json"
+entrypoint = "./functions/push-new-message/index.ts"
+
+# Checks the caller's JWT itself (only the two people in a call may ring it)
+[functions.push-call]
+enabled = true
+verify_jwt = false
+import_map = "./functions/push-call/deno.json"
+entrypoint = "./functions/push-call/index.ts"

@@ -1,9 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-
-import '../navigation/app_navigator.dart';
 import '../../features/chats/screens/conversation_screens.dart';
+import '../navigation/app_navigatior.dart';
 
 /// Opens the right chat when the user taps a notification.
 class NotificationRouter {

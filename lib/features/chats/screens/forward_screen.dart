@@ -1,9 +1,9 @@
+import 'package:chatme/core/utils/app_animations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/shared/widgets/app_skeletons.dart';
-import '../../../../core/shared/widgets/user_avatar.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/theme_provider.dart';
+import '../../../core/utils/app_haptics.dart';
 import '../providers/all_users_provider.dart';
 import '../providers/chat_actions_provider.dart';
 
@@ -21,7 +21,21 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
   String _query = '';
   bool _isForwarding = false; // blocks double taps while forwarding
 
-  Color _colorForName(String name) => AppColors.avatarFor(name);
+  // Same fixed avatar palette style used across the app
+  static const List<Color> _avatarPalette = [
+    Color(0xFF3CB67C),
+    Color(0xFF6C63FF),
+    Color(0xFFFF7A59),
+    Color(0xFF3B9AE1),
+    Color(0xFFE55C8A),
+    Color(0xFFF2B84B),
+  ];
+
+  Color _colorForName(String name) {
+    if (name.isEmpty) return _avatarPalette.first;
+    final index = name.codeUnitAt(0) % _avatarPalette.length;
+    return _avatarPalette[index];
+  }
 
   @override
   void dispose() {
@@ -32,7 +46,7 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
   @override
   Widget build(BuildContext context) {
     final usersAsync = ref.watch(allUsersProvider);
-    final p = ref.watch(themeProvider).palette;
+    final p = ref.watch(themeProvider).preset;
 
     return Scaffold(
       backgroundColor: p.background,
@@ -64,7 +78,7 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
                 decoration: BoxDecoration(
                   color: p.surface,
                   borderRadius: BorderRadius.circular(14),
-                  boxShadow: [
+                  boxShadow: const [
                     BoxShadow(color: AppColors.shadow, blurRadius: 10, offset: Offset(0, 4)),
                   ],
                 ),
@@ -112,7 +126,7 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
                       decoration: BoxDecoration(
                         color: p.surface,
                         borderRadius: BorderRadius.circular(18),
-                        boxShadow: [
+                        boxShadow: const [
                           BoxShadow(color: AppColors.shadow, blurRadius: 14, offset: Offset(0, 6)),
                         ],
                       ),
@@ -125,46 +139,55 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
                           final user = filtered[index];
                           final avatarColor = _colorForName(user.name);
 
-                          return Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: () => _onUserTap(user),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                                child: Row(
-                                  children: [
-                                    UserAvatar(
-                                      name: user.name,
-                                      avatarUrl: user.avatarUrl,
-                                      radius: 22,
-                                      backgroundColor: avatarColor.withOpacity(0.15),
-                                      foregroundColor: avatarColor,
-                                    ),
-                                    const SizedBox(width: 14),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            user.name,
-                                            style: TextStyle(
-                                              color: p.textMain,
-                                              fontWeight: FontWeight.w600,
-                                              fontSize: 15,
-                                            ),
+                          return FadeSlideIn(
+                            enabled: index < 8, // only first rows animate
+                            duration: Duration(milliseconds: 250 + index * 40),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () => _onUserTap(user),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                  child: Row(
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 22,
+                                        backgroundColor: avatarColor.withOpacity(0.15),
+                                        child: Text(
+                                          user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
+                                          style: TextStyle(
+                                            color: avatarColor,
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 16,
                                           ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            user.email,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(color: p.textGrey, fontSize: 12.5),
-                                          ),
-                                        ],
+                                        ),
                                       ),
-                                    ),
-                                    Icon(Icons.chevron_right, color: p.icon, size: 20),
-                                  ],
+                                      const SizedBox(width: 14),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              user.name,
+                                              style: TextStyle(
+                                                color: p.textMain,
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 15,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              user.email,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(color: p.textGrey, fontSize: 12.5),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Icon(Icons.chevron_right, color: p.icon, size: 20),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -173,7 +196,7 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
                       ),
                     );
                   },
-                  loading: () => AppSkeletons.userList(),
+                  loading: () => Center(child: CircularProgressIndicator(color: p.primary)),
                   error: (err, stack) => _EmptyState(icon: Icons.error_outline, message: 'Error: $err'),
                 ),
               ),
@@ -186,18 +209,25 @@ class _ForwardScreenState extends ConsumerState<ForwardScreen> {
   }
 
   Future<void> _onUserTap(dynamic user) async {
-    if (_isForwarding) return;
+    AppHaptics.tap();
+    if (_isForwarding) return; // block double-tap while already forwarding
     setState(() => _isForwarding = true);
 
+    final p = ref.read(themeProvider).preset;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => Center(child: CircularProgressIndicator(color: p.primary)),
+    );
+
     try {
-      final chatId = await AppSkeletons.showBlockingOverlay(
-        context: context,
-        future: ref.read(chatActionsProvider).getOrCreateChat(user.id),
-      );
-      if (!mounted || chatId == null) return;
-      Navigator.pop(context, chatId);
+      final chatId = await ref.read(chatActionsProvider).getOrCreateChat(user.id);
+      if (!mounted) return;
+      Navigator.pop(context); // close loading dialog
+      Navigator.pop(context, chatId); // return the chosen chat id to ConversationScreen
     } catch (e) {
       if (!mounted) return;
+      Navigator.pop(context); // close loading dialog
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to forward: $e')),
       );
@@ -215,7 +245,7 @@ class _EmptyState extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final p = ref.watch(themeProvider).palette;
+    final p = ref.watch(themeProvider).preset;
 
     return Center(
       child: Column(

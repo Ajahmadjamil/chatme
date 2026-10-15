@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../../../core/theme/app_colors.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/theme/theme_provider.dart';
 import '../model.dart';
 
 
@@ -11,9 +12,12 @@ void showAutoClearSheet({
   required void Function(int? minutes) onSelected,
 }) {
   final currentOption = AutoClearOptionData.fromMinutes(currentMinutes);
+  // Colors of the currently selected theme
+  final p = ProviderScope.containerOf(context).read(themeProvider).preset;
 
   showModalBottomSheet(
     context: context,
+    backgroundColor: p.surface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
@@ -23,13 +27,13 @@ void showAutoClearSheet({
           mainAxisSize: MainAxisSize.min,
           children: [
             Padding(
-              padding: EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
               child: Text(
                 'Auto-delete messages',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 16,
-                  color: AppColors.textDark,
+                  color: p.textMain,
                 ),
               ),
             ),
@@ -39,9 +43,9 @@ void showAutoClearSheet({
                   option == currentOption
                       ? Icons.radio_button_checked
                       : Icons.radio_button_off,
-                  color: option == currentOption ? AppColors.primary : AppColors.icon,
+                  color: option == currentOption ? p.primary : p.icon,
                 ),
-                title: Text(option.label, style: TextStyle(color: AppColors.textDark)),
+                title: Text(option.label, style: TextStyle(color: p.textMain)),
                 onTap: () {
                   Navigator.pop(context);
                   onSelected(option.minutes);

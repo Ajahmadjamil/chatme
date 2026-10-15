@@ -1,80 +1,70 @@
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-
-enum ChatLockMode {
-  /// One PIN unlocks / manages every locked chat.
-  shared,
-
-  /// Each locked chat has its own PIN.
-  separate,
-}
-
-extension ChatLockModeX on ChatLockMode {
-  String get storageValue => name;
-
-  static ChatLockMode fromStorage(String? raw) {
-    if (raw == ChatLockMode.separate.storageValue) {
-      return ChatLockMode.separate;
-    }
-    return ChatLockMode.shared;
-  }
-}
-
-/// Device-only storage for chat locks (not synced to Supabase).
+// Talks to Supabase. Nothing here knows about the UI or Riverpod.
+// The PIN hash lives in chat_members.lock_pin_hash (one row per user per chat).
 class ChatLockService {
-  final _storage = const FlutterSecureStorage();
+  final _db = Supabase.instance.client;
 
-  static const _modeKey = 'chat_lock_mode';
-  static const _pinKey = 'chat_lock_pin';
-  static const _perChatPinsKey = 'chat_lock_per_chat_pins';
-  static const _lockedIdsKey = 'chat_lock_locked_ids';
+  String get _userId => _db.auth.currentUser!.id;
 
-  Future<ChatLockMode> getMode() async {
-    final raw = await _storage.read(key: _modeKey);
-    return ChatLockModeX.fromStorage(raw);
+  // PIN + chatId + userId are mixed, so the same PIN gives a different hash in every chat
+  String _hash(String pin, String chatId) {
+    final bytes = utf8.encode('$pin:$chatId:$_userId');
+    return sha256.convert(bytes).toString();
   }
 
-  Future<void> saveMode(ChatLockMode mode) =>
-      _storage.write(key: _modeKey, value: mode.storageValue);
-
-  Future<String?> getSharedPin() => _storage.read(key: _pinKey);
-
-  Future<void> saveSharedPin(String pin) =>
-      _storage.write(key: _pinKey, value: pin);
-
-  Future<void> clearSharedPin() => _storage.delete(key: _pinKey);
-
-  Future<Map<String, String>> getPerChatPins() async {
-    final raw = await _storage.read(key: _perChatPinsKey);
-    if (raw == null || raw.isEmpty) return {};
-    try {
-      final map = jsonDecode(raw) as Map<String, dynamic>;
-      return map.map((k, v) => MapEntry(k, v.toString()));
-    } catch (_) {
-      return {};
-    }
-  }
-
-  Future<void> savePerChatPins(Map<String, String> pins) async {
-    if (pins.isEmpty) {
-      await _storage.delete(key: _perChatPinsKey);
-      return;
-    }
-    await _storage.write(key: _perChatPinsKey, value: jsonEncode(pins));
-  }
-
+  // Chats where this user has set a PIN
   Future<Set<String>> getLockedChatIds() async {
-    final raw = await _storage.read(key: _lockedIdsKey);
-    if (raw == null || raw.isEmpty) return {};
-    return raw.split(',').where((e) => e.isNotEmpty).toSet();
+    final rows = await _db
+        .from('chat_members')
+        .select('chat_id')
+        .eq('user_id', _userId)
+        .not('lock_pin_hash', 'is', null);
+    return rows.map((r) => r['chat_id'] as String).toSet();
   }
 
-  Future<void> saveLockedChatIds(Set<String> ids) async {
-    if (ids.isEmpty) {
-      await _storage.delete(key: _lockedIdsKey);
-      return;
-    }
-    await _storage.write(key: _lockedIdsKey, value: ids.join(','));
+  // Sets the secret (or changes it if the chat is already locked).
+  // type is 'pin' or 'password'.
+  Future<void> saveLock(String chatId, String secret, {String type = 'pin'}) async {
+    await _db
+        .from('chat_members')
+        .update({
+      'lock_pin_hash': _hash(secret, chatId),
+      'lock_type': type,
+    })
+        .eq('chat_id', chatId)
+        .eq('user_id', _userId);
+  }
+
+  Future<bool> verifyPin(String chatId, String pin) async {
+    final row = await _db
+        .from('chat_members')
+        .select('lock_pin_hash')
+        .eq('chat_id', chatId)
+        .eq('user_id', _userId)
+        .maybeSingle();
+    return row != null && row['lock_pin_hash'] == _hash(pin, chatId);
+  }
+
+  Future<void> deleteLock(String chatId) async {
+    await _db
+        .from('chat_members')
+        .update({'lock_pin_hash': null, 'lock_type': null})
+        .eq('chat_id', chatId)
+        .eq('user_id', _userId);
+  }
+  // Returns 'pin' or 'password'. Old locks have no type, so they count as 'pin'
+  Future<String> getLockType(String chatId) async {
+    final row = await _db
+        .from('chat_members')
+        .select('lock_type')
+        .eq('chat_id', chatId)
+        .eq('user_id', _userId)
+        .maybeSingle();
+
+    if (row == null || row['lock_type'] == null) return 'pin';
+    return row['lock_type'] as String;
   }
 }

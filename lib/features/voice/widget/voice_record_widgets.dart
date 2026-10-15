@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../../core/theme/app_colors.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/theme/theme_provider.dart';
 import '../../../core/utils/app_haptics.dart';
+import '../../Home/home_view.dart'; // for kAccentColor
 
 // The mic button. It understands 3 gestures:
 //  - hold and release        -> send
@@ -86,14 +88,20 @@ class _VoiceMicButtonState extends State<VoiceMicButton> {
       child: AnimatedScale(
         scale: widget.isRecording ? 1.5 : 1.0,
         duration: const Duration(milliseconds: 150),
-        child: CircleAvatar(
-          radius: 22,
-          backgroundColor: widget.isRecording ? Colors.red : AppColors.accent,
-          child: Icon(
-            widget.isRecording ? Icons.mic : Icons.mic_none,
-            color: Colors.white,
-            size: 20,
-          ),
+        // Consumer lets this StatefulWidget read the selected theme
+        child: Consumer(
+          builder: (context, ref, _) {
+            final p = ref.watch(themeProvider).preset;
+            return CircleAvatar(
+              radius: 22,
+              backgroundColor: widget.isRecording ? Colors.red : p.accent,
+              child: Icon(
+                widget.isRecording ? Icons.mic : Icons.mic_none,
+                color: Colors.white,
+                size: 20,
+              ),
+            );
+          },
         ),
       ),
     );

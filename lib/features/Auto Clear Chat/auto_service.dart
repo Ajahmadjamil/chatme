@@ -2,12 +2,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'model.dart';
 
-/// Auto-delete settings + expiry helpers.
-/// Global expiry cleanup runs on the DB via pg_cron; this still cleans
-/// opportunistically when a chat is opened.
+// Talks to Supabase for everything related to auto-delete messages
 class AutoClearService {
   final supabase = Supabase.instance.client;
 
+  // Reads the current auto-clear setting (in minutes) for one chat
   Future<int?> getAutoClearMinutes(String chatId) async {
     final row = await supabase
         .from('chats')
@@ -24,6 +23,7 @@ class AutoClearService {
         .update({'auto_clear_minutes': minutes})
         .eq('id', chatId);
 
+    // Post a small announcement into the chat, WhatsApp-style
     final currentUserId = supabase.auth.currentUser!.id;
     final String announcement;
     if (minutes == null) {
@@ -42,24 +42,28 @@ class AutoClearService {
     });
   }
 
+  // Works out when a NEW message should expire, based on the chat's
+  // current auto-clear setting. Returns null if auto-clear is off.
   Future<DateTime?> calculateExpiry(String chatId) async {
     final minutes = await getAutoClearMinutes(chatId);
     if (minutes == null) return null;
     return DateTime.now().toUtc().add(Duration(minutes: minutes));
   }
 
-  /// Opportunistic cleanup for this chat; server cron also runs globally.
+  // Deletes messages in this chat whose time has already run out
+  // Deletes messages in this chat whose time has already run out.
+  // Returns how many messages were deleted, so the caller only
+  // refreshes the UI when something actually changed.
   Future<int> deleteExpiredMessages(String chatId) async {
-    final count = await supabase.rpc(
-      'cleanup_expired_messages_for_chat',
-      params: {'p_chat_id': chatId},
-    );
-    return (count as num?)?.toInt() ?? 0;
-  }
+    final nowText = DateTime.now().toUtc().toIso8601String();
 
-  /// Ask the DB to purge all expired messages (also scheduled via cron).
-  Future<int> cleanupAllExpired() async {
-    final count = await supabase.rpc('cleanup_expired_messages');
-    return (count as num?)?.toInt() ?? 0;
+    final deletedRows = await supabase
+        .from('messages')
+        .delete()
+        .eq('chat_id', chatId)
+        .lt('expires_at', nowText)
+        .select('id');
+
+    return deletedRows.length;
   }
 }

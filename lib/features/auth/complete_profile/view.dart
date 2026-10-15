@@ -1,16 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/shared/widgets/custom_button.dart';
 import '../../../core/shared/widgets/custom_text_field.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/theme_provider.dart';
 import '../../../core/utils/validators.dart';
 import '../Profile/provider.dart';
 import '../controller.dart';
 import '../widget/auth_header.dart';
 
-/// Shown once after the first Google sign-in until name + phone are saved.
+// Shown once after the first Google sign-in, until the profile is saved.
 class CompleteProfileView extends ConsumerStatefulWidget {
   const CompleteProfileView({super.key});
 
@@ -22,16 +21,16 @@ class CompleteProfileView extends ConsumerStatefulWidget {
 class _CompleteProfileViewState extends ConsumerState<CompleteProfileView> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _aboutController = TextEditingController();
+  final _usernameController = TextEditingController();
+  final _bioController = TextEditingController();
   bool _loadedOnce = false;
   bool _isSaving = false;
 
   @override
   void dispose() {
     _nameController.dispose();
-    _phoneController.dispose();
-    _aboutController.dispose();
+    _usernameController.dispose();
+    _bioController.dispose();
     super.dispose();
   }
 
@@ -43,15 +42,16 @@ class _CompleteProfileViewState extends ConsumerState<CompleteProfileView> {
     try {
       await ref.read(profileActionsProvider).completeProfile(
             name: _nameController.text.trim(),
-            phone: _phoneController.text.trim(),
-            about: _aboutController.text.trim(),
+            username: _usernameController.text.trim(),
+            bio: _bioController.text.trim(),
           );
       ref.invalidate(myProfileProvider);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not save profile: $e')),
-        );
+        final msg = e.toString().contains('duplicate')
+            ? 'This username is already taken'
+            : 'Could not save profile: $e';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -61,9 +61,10 @@ class _CompleteProfileViewState extends ConsumerState<CompleteProfileView> {
   @override
   Widget build(BuildContext context) {
     final profileAsync = ref.watch(myProfileProvider);
+    final p = ref.watch(themeProvider).preset;
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: p.background,
       body: SafeArea(
         child: profileAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
@@ -71,14 +72,12 @@ class _CompleteProfileViewState extends ConsumerState<CompleteProfileView> {
           data: (profile) {
             if (!_loadedOnce) {
               _nameController.text = (profile['name'] as String?)?.trim() ?? '';
-              _phoneController.text =
-                  (profile['phone'] as String?)?.trim() ?? '';
-              _aboutController.text =
-                  (profile['about'] as String?)?.trim().isNotEmpty == true
-                      ? (profile['about'] as String).trim()
-                      : 'Hey there! I am using ChatMe.';
+              _usernameController.text =
+                  (profile['username'] as String?)?.trim() ?? '';
+              _bioController.text = (profile['bio'] as String?)?.trim() ?? '';
               _loadedOnce = true;
             }
+            final email = profile['email'] as String?;
 
             return SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
@@ -92,41 +91,28 @@ class _CompleteProfileViewState extends ConsumerState<CompleteProfileView> {
                       subtitle:
                           'You’re signed in with Google. Add a few details so friends can find and recognize you.',
                     ),
-                    if ((profile['email'] as String?)?.isNotEmpty == true) ...[
-                      Text(
-                        profile['email'] as String,
-                        style: TextStyle(
-                          color: AppColors.textGrey,
-                          fontSize: 14,
-                        ),
-                      ),
+                    if (email != null && email.isNotEmpty) ...[
+                      Text(email, style: TextStyle(color: p.textGrey, fontSize: 14)),
                       const SizedBox(height: 18),
                     ],
                     CustomTextField(
                       controller: _nameController,
-                      hintText: 'Display name',
-                      prefixIcon: Icons.person,
+                      hintText: 'Name',
+                      prefixIcon: Icons.person_outline,
                       keyboardType: TextInputType.name,
                       validator: Validators.name,
                     ),
                     const SizedBox(height: 18),
                     CustomTextField(
-                      controller: _phoneController,
-                      hintText: 'Phone number',
-                      prefixIcon: Icons.phone,
-                      keyboardType: TextInputType.phone,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[0-9+]')),
-                        LengthLimitingTextInputFormatter(16),
-                      ],
-                      validator: Validators.phone,
+                      controller: _usernameController,
+                      hintText: 'Username (optional)',
+                      prefixIcon: Icons.alternate_email,
                     ),
                     const SizedBox(height: 18),
                     CustomTextField(
-                      controller: _aboutController,
-                      hintText: 'About',
+                      controller: _bioController,
+                      hintText: 'Bio (optional)',
                       prefixIcon: Icons.info_outline,
-                      keyboardType: TextInputType.text,
                       textInputAction: TextInputAction.done,
                       onSubmitted: (_) => _onContinue(),
                     ),
@@ -140,12 +126,11 @@ class _CompleteProfileViewState extends ConsumerState<CompleteProfileView> {
                     TextButton(
                       onPressed: _isSaving
                           ? null
-                          : () => ref
-                              .read(authControllerProvider.notifier)
-                              .signOut(),
+                          : () =>
+                              ref.read(authControllerProvider.notifier).signOut(),
                       child: Text(
                         'Use a different Google account',
-                        style: TextStyle(color: AppColors.textGrey),
+                        style: TextStyle(color: p.textGrey),
                       ),
                     ),
                   ],

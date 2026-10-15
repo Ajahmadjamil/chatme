@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:skeletonizer/skeletonizer.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../theme/app_colors.dart';
-import '../../utils/app_haptics.dart';
+import '../../theme/theme_provider.dart';
 
-/// Green rounded button.
-/// When [isLoading] is true it shows a shimmer skeleton and cannot be tapped.
-class CustomButton extends StatelessWidget {
+// Rounded button that follows the selected theme.
+// When isLoading is true it shows a spinner and cannot be tapped.
+class CustomButton extends ConsumerWidget {
   const CustomButton({
     super.key,
     required this.text,
@@ -19,45 +18,36 @@ class CustomButton extends StatelessWidget {
   final bool isLoading;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = ref.watch(themeProvider).preset;
+
     return SizedBox(
       width: double.infinity,
       height: 56,
       child: ElevatedButton(
-        onPressed: isLoading
-            ? null
-            : () {
-                AppHaptics.success();
-                onPressed();
-              },
+        onPressed: isLoading ? null : onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primary,
-          disabledBackgroundColor: AppColors.primary,
-          foregroundColor: Colors.white,
-          disabledForegroundColor: Colors.white,
+          backgroundColor: p.primary,
+          disabledBackgroundColor: p.primary, // keep the color while loading
+          foregroundColor: p.onPrimary,
+          disabledForegroundColor: p.onPrimary,
           elevation: 6,
-          shadowColor: AppColors.buttonShadow,
-          shape: const StadiumBorder(),
+          shadowColor: p.primary.withOpacity(0.4),
+          shape: const StadiumBorder(), // fully rounded ends
         ),
         child: isLoading
-            ? Skeletonizer(
-                enabled: true,
-                effect: const ShimmerEffect(
-                  baseColor: Color(0x33FFFFFF),
-                  highlightColor: Color(0x66FFFFFF),
-                ),
-                child: Text(
-                  text,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              )
+            ? SizedBox(
+          height: 22,
+          width: 22,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            color: p.onPrimary,
+          ),
+        )
             : Text(
-                text,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-              ),
+          text,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+        ),
       ),
     );
   }

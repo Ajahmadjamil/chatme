@@ -1,25 +1,40 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../core/shared/widgets/app_skeletons.dart';
 import '../../core/shared/widgets/chat_tile.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_provider.dart';
+import '../../core/utils/app_animations.dart';
 import '../../core/utils/app_dialogs.dart';
 import '../../core/utils/app_haptics.dart';
+import '../../core/utils/page_transitions.dart';
 import '../../core/utils/time_formatter.dart';
-import '../auth/Profile/Screens/full_avatar_view.dart';
-import '../chat lock/chat_lock_actions.dart';
+import '../Shortcut/service.dart';
+import '../ai_chatbot/ai_chat_launcher.dart';
 import '../chat lock/provider.dart';
-import '../chat lock/screens/locked_chats_screen.dart';
+import '../chat lock/screens/enter_pin_view.dart';
+import '../chat lock/screens/set_pin_view.dart';
 import '../chats/providers/chat_actions_provider.dart';
 import '../chats/providers/chat_list_provider.dart';
 import '../chats/providers/chat_list_refresh_provider.dart';
 import '../chats/screens/conversation_screens.dart';
 import '../chats/screens/new_chat_screen.dart';
-import '../../core/navigation/app_nav.dart';
 
-Color avatarColorFor(String name) => AppColors.avatarFor(name);
+const Color kAccentColor = Color(0xFF25D366);
+const Color kHeaderColor = Color(0xFF075E54);
+
+Color avatarColorFor(String name) {
+  const colors = [
+    Colors.indigo,
+    Colors.deepOrange,
+    Colors.teal,
+    Colors.purple,
+    Colors.blueGrey,
+    Colors.pink,
+  ];
+  if (name.isEmpty) return colors[0];
+  int index = name.codeUnitAt(0) % colors.length;
+  return colors[index];
+}
 
 class HomeView extends ConsumerStatefulWidget {
   const HomeView({super.key});
@@ -28,7 +43,6 @@ class HomeView extends ConsumerStatefulWidget {
 }
 
 class _HomeViewState extends ConsumerState<HomeView> {
-  // Sirf UI ke liye: search text
   final TextEditingController _searchController = TextEditingController();
   String _query = '';
 
@@ -44,25 +58,31 @@ class _HomeViewState extends ConsumerState<HomeView> {
       String name,
       bool isLocked,
       ) async {
-    if (isLocked) {
-      final ok = await ChatLockActions.unlockWithBiometric(
-        context: context,
-        ref: ref,
-        chatId: chat.id,
-        reason: 'Unlock $name',
+    if (isLocked && !ref.read(chatLockProvider.notifier).isUnlockedNow(chat.id)) {
+      final success = await Navigator.push<bool>(
+        context,
+        PageTransitions.slideFromBottom<bool>(
+          EnterPinScreen(
+            chatId: chat.id,
+            title: 'Locked Chat',
+            subtitle: 'Enter your PIN to open this chat.',
+          ),
+        ),
       );
-      if (!ok) return;
+      if (success != true) return;
+      ref.read(chatLockProvider.notifier).markUnlocked(chat.id);
     }
     if (!context.mounted) return;
 
-    AppNav.push(
+    Navigator.push(
       context,
-      ConversationScreen(
-        chatId: chat.id,
-        otherUserName: name,
-        otherUserId: chat.otherUserId,
-        avatarUrl: chat.avatarUrl,
-        isGroup: chat.isGroup,
+      PageTransitions.slideFromRight(
+        ConversationScreen(
+          chatId: chat.id,
+          otherUserName: name,
+          isGroup: chat.isGroup,
+          otherAvatarUrl: chat.avatarUrl,
+        ),
       ),
     );
   }
@@ -75,7 +95,7 @@ class _HomeViewState extends ConsumerState<HomeView> {
       ) {
     final name = chat.otherUserName ?? 'Unknown';
 
-    final p = ref.read(themeProvider).palette;
+    final p = ref.read(themeProvider).preset;
     showModalBottomSheet(
       context: context,
       backgroundColor: p.surface,
@@ -110,7 +130,20 @@ class _HomeViewState extends ConsumerState<HomeView> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                const SizedBox(height: 8),
 
+// Add to home screen option
+                _sheetActionTile(
+                  icon: Icons.add_to_home_screen_rounded,
+                  iconBg: kAccentColor.withOpacity(0.12),
+                  iconColor: kAccentColor,
+                  title: 'Add to home screen',
+                  subtitle: 'Open this chat directly from your home screen',
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _addToHomeScreen(context, chat, name);
+                  },
+                ),
                 // Lock / Unlock option
                 _sheetActionTile(
                   icon: isLocked ? Icons.lock_open_rounded : Icons.lock_outline_rounded,
@@ -159,7 +192,7 @@ class _HomeViewState extends ConsumerState<HomeView> {
     required VoidCallback onTap,
     Color? titleColor,
   }) {
-    final p = ref.read(themeProvider).palette;
+    final p = ref.read(themeProvider).preset;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -185,11 +218,7 @@ class _HomeViewState extends ConsumerState<HomeView> {
                   children: [
                     Text(
                       title,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15,
-                        color: titleColor ?? p.textMain,
-                      ),
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: titleColor ?? p.textMain),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -206,35 +235,60 @@ class _HomeViewState extends ConsumerState<HomeView> {
     );
   }
 
+  // Creates a home screen shortcut for this chat
+  Future<void> _addToHomeScreen(
+      BuildContext context, dynamic chat, String name) async {
+    final ok = await ref.read(chatShortcutServiceProvider).pinChat(
+      chatId: chat.id,
+      name: name,
+      isGroup: chat.isGroup,
+    );
+
+    if (!ok && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Shortcuts are not supported on this device')),
+      );
+    }
+  }
+
   Future<void> _handleLockToggle(
       BuildContext context,
       WidgetRef ref,
       dynamic chat,
       bool isLocked,
       ) async {
+    final notifier = ref.read(chatLockProvider.notifier);
+
     if (isLocked) {
-      final ok = await ChatLockActions.removeLock(
+      final success = await Navigator.push<bool>(
         context,
-        ref,
-        chatId: chat.id,
+        PageTransitions.slideFromBottom<bool>(
+          EnterPinScreen(
+            chatId: chat.id,
+            title: 'Unlock Chat',
+            subtitle: 'Enter the PIN to remove the lock on this chat.',
+          ),
+        ),
       );
-      if (ok && context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Chat unlocked')));
+      if (success == true) {
+        await notifier.removeLock(chat.id);
+        AppHaptics.medium();
       }
       return;
     }
 
-    final ok = await ChatLockActions.lockChat(
+    final created = await Navigator.push<bool>(
       context,
-      ref,
-      chatId: chat.id,
+      PageTransitions.slideFromBottom<bool>(SetPinScreen(chatId: chat.id)),
     );
-    if (ok && context.mounted) {
+    if (created != true) return;
+    AppHaptics.lock();
+    if (context.mounted) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Chat locked')));
     }
   }
+
   Future<void> _deleteChat(
       BuildContext context, WidgetRef ref, dynamic chat) async {
     final name = chat.otherUserName ?? 'this chat';
@@ -242,7 +296,7 @@ class _HomeViewState extends ConsumerState<HomeView> {
 
     final confirmed = await AppDialogs.confirmDeleteChat(context, name);
     if (!confirmed || !context.mounted) return;
-
+    AppHaptics.warning();
     try {
       await ref.read(chatActionsProvider).clearChatForMe(chat.id);
       ref.invalidate(chatListProvider);
@@ -254,7 +308,8 @@ class _HomeViewState extends ConsumerState<HomeView> {
             behavior: SnackBarBehavior.floating,
             shape:
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            content: Text('Failed to delete chat: $e')),
+            content: Text('Failed to delete chat: $e'),
+          ),
         );
       }
     }
@@ -264,13 +319,13 @@ class _HomeViewState extends ConsumerState<HomeView> {
   Widget build(BuildContext context) {
     final chatsAsync = ref.watch(chatListProvider);
     ref.watch(chatListRefresherProvider);
-    ref.watch(themeProvider);
+    final p = ref.watch(themeProvider).preset;
 
     final List<Widget> chatSlivers = chatsAsync.when(
       data: (chats) {
         if (chats.isEmpty) {
           return <Widget>[
-            SliverFillRemaining(
+            const SliverFillRemaining(
               hasScrollBody: false,
               child: ChatEmptyState(
                 icon: Icons.chat_bubble_outline_rounded,
@@ -281,11 +336,9 @@ class _HomeViewState extends ConsumerState<HomeView> {
           ];
         }
 
-        // Hide locked chats from the main list (see ⋮ → Show locked chats).
-        final lockedIds = ref.watch(chatLockProvider).lockedChatIds;
+        // Local search
         final String q = _query.trim().toLowerCase();
         final visible = chats.where((c) {
-          if (lockedIds.contains(c.id)) return false;
           final String n =
           (c.otherUserName ?? 'Unknown').toString().toLowerCase();
           return q.isEmpty || n.contains(q);
@@ -293,7 +346,7 @@ class _HomeViewState extends ConsumerState<HomeView> {
 
         if (visible.isEmpty) {
           return <Widget>[
-            SliverFillRemaining(
+            const SliverFillRemaining(
               hasScrollBody: false,
               child: ChatEmptyState(
                 icon: Icons.search_off_rounded,
@@ -315,25 +368,16 @@ class _HomeViewState extends ConsumerState<HomeView> {
                   final int idx = i ~/ 2;
                   final chat = visible[idx];
                   final name = chat.otherUserName ?? 'Unknown';
-
-                  // Swipe left = delete (long press bhi pehle jaisa chalega)
+                  final isLocked = ref.watch(chatLockProvider).lockedChatIds.contains(chat.id);
                   return Dismissible(
                     key: ValueKey('chat_${chat.id}'),
                     direction: DismissDirection.endToStart,
                     confirmDismiss: (_) async {
                       await _deleteChat(context, ref, chat);
-                      return false; // list provider refresh karega
+                      return false;
                     },
                     background: Container(
-                      // Glass rows are inset cards — match their shape.
-                      margin: AppColors.isGlass
-                          ? const EdgeInsets.symmetric(horizontal: 12)
-                          : EdgeInsets.zero,
-                      decoration: BoxDecoration(
-                        color: Colors.red.shade400,
-                        borderRadius: BorderRadius.circular(
-                            AppColors.isGlass ? 20 : 0),
-                      ),
+                      color: Colors.red.shade400,
                       alignment: Alignment.centerRight,
                       padding: const EdgeInsets.only(right: 24),
                       child: const Icon(Icons.delete_outline_rounded,
@@ -342,32 +386,19 @@ class _HomeViewState extends ConsumerState<HomeView> {
                     child: ChatTile(
                       index: idx,
                       name: name,
-                      lastMessage: chat.lastMessage,
+                      lastMessage: isLocked ? ' Locked chat' : chat.lastMessage,
                       time: chat.lastMessageAt != null
                           ? formatMessageTime(chat.lastMessageAt!)
                           : null,
                       unreadCount: chat.unreadCount,
                       isGroup: chat.isGroup,
-                      avatarUrl: chat.avatarUrl,
-                      avatarHeroTag: 'home-avatar-${chat.id}',
                       avatarColor:
                       chat.isGroup ? Colors.teal : avatarColorFor(name),
-                      onTap: () => _handleChatTap(context, ref, chat, name, false),
-                      onLongPress: () => _showChatOptionsSheet(context, ref, chat, false),
-                      onAvatarTap: () {
-                        final url = chat.avatarUrl;
-                        if (url == null || url.isEmpty || chat.isGroup) {
-                          _handleChatTap(context, ref, chat, name, false);
-                          return;
-                        }
-                        AppNav.fade(
-                          context,
-                          FullAvatarView(
-                            imageUrl: url,
-                            title: name,
-                            heroTag: 'home-avatar-${chat.id}',
-                          ),
-                        );
+                      avatarUrl: chat.avatarUrl,
+                      onTap: () => _handleChatTap(context, ref, chat, name, isLocked),
+                      onLongPress: () {
+                        AppHaptics.medium();
+                        _showChatOptionsSheet(context, ref, chat, isLocked);
                       },
                     ),
                   );
@@ -379,7 +410,7 @@ class _HomeViewState extends ConsumerState<HomeView> {
         ];
       },
       loading: () => <Widget>[
-        AppSkeletons.chatListSliver(),
+        const SliverToBoxAdapter(child: _ChatListSkeleton()),
       ],
       error: (err, stack) => <Widget>[
         SliverFillRemaining(
@@ -397,46 +428,27 @@ class _HomeViewState extends ConsumerState<HomeView> {
         if (shouldExit) SystemNavigator.pop(); // closes the app
       },
       child: Scaffold(
-        backgroundColor:
-            AppColors.isGlass ? Colors.transparent : AppColors.background,
-        floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-        floatingActionButton: Padding(
-          padding: EdgeInsets.only(bottom: AppColors.isGlass ? 72 : 0),
+        backgroundColor: p.surface,
+        floatingActionButton: BounceIn(
           child: FloatingActionButton(
-          backgroundColor: AppColors.accent,
-          elevation: 2,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          onPressed: () {
-            AppHaptics.navigate();
-            AppNav.push(context, const NewChatScreen());
-          },
-          child: Icon(Icons.add_rounded, color: AppColors.onPrimary, size: 30),
-        ),
+            backgroundColor: p.accent,
+            elevation: 2,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            onPressed: () {
+              AppHaptics.light();
+              Navigator.push(
+                context,
+                PageTransitions.slideFromRight(const NewChatScreen()),
+              );
+            },
+            child: const Icon(Icons.add_rounded, color: Colors.white, size: 30),
+          ),
         ),
         body: CustomScrollView(
           physics: const BouncingScrollPhysics(),
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           slivers: [
-            ChatUi.sliverHeader(
-              'Chats',
-              actions: [
-                PopupMenuButton<String>(
-                  icon: Icon(Icons.more_vert, color: AppColors.textMain),
-                  onSelected: (value) {
-                    if (value == 'locked') {
-                      AppHaptics.tap();
-                      AppNav.push(context, const LockedChatsScreen());
-                    }
-                  },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(
-                      value: 'locked',
-                      child: Text('Show locked chats'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+            ChatUi.sliverHeader('Chats'),
             SliverToBoxAdapter(
               child: ChatSearchField(
                 controller: _searchController,
@@ -444,12 +456,50 @@ class _HomeViewState extends ConsumerState<HomeView> {
                 onChanged: (v) => setState(() => _query = v),
               ),
             ),
+            if (!chatsAsync.isLoading &&
+                (_query.trim().isEmpty ||
+                    'ai chat'.contains(_query.trim().toLowerCase())))
+              const SliverToBoxAdapter(
+                child: Column(
+                  children: [
+                    AiChatTile(),
+                    ChatDivider(),
+                  ],
+                ),
+              ),
             ...chatSlivers,
-            if (AppColors.isGlass)
-              const SliverToBoxAdapter(child: SizedBox(height: 100)),
           ],
         ),
       ),
+    );
+  }
+}
+// Loading skeleton for the chat list (replaces the spinner)
+class _ChatListSkeleton extends StatelessWidget {
+  const _ChatListSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: List.generate(8, (i) {
+        return const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              ShimmerBox(width: 52, height: 52, borderRadius: 26),
+              SizedBox(width: 14),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ShimmerBox(width: 140, height: 14),
+                  SizedBox(height: 8),
+                  ShimmerBox(width: 220, height: 12),
+                ],
+              ),
+            ],
+          ),
+        );
+      }),
     );
   }
 }

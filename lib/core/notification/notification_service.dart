@@ -107,11 +107,18 @@ class NotificationService {
     }
   }
 
+  // Permission prompts must never stop the app from starting. After a hot
+  // restart Android may still have the previous run's request open, and a
+  // second request then throws "A request for permissions is already running".
   static Future<void> _askAndroidPermission() async {
     if (!Platform.isAndroid) return;
-    final status = await Permission.notification.status;
-    if (!status.isGranted) {
-      await Permission.notification.request();
+    try {
+      final status = await Permission.notification.status;
+      if (!status.isGranted) {
+        await Permission.notification.request();
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('Notification permission request skipped: $e');
     }
   }
 
@@ -136,13 +143,17 @@ class NotificationService {
   }
 
   static Future<void> _askFcmPermission() async {
-    final settings = await _fcm.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-    if (kDebugMode) {
-      debugPrint('Notification permission: ${settings.authorizationStatus}');
+    try {
+      final settings = await _fcm.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      if (kDebugMode) {
+        debugPrint('Notification permission: ${settings.authorizationStatus}');
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('FCM permission request skipped: $e');
     }
     await _fcm.setForegroundNotificationPresentationOptions(
       alert: true,

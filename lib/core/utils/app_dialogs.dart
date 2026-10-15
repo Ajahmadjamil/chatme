@@ -1,14 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_theme_presets.dart';
+import '../theme/theme_provider.dart';
 import 'app_haptics.dart';
 
 // What the user picked in the message options dialog
-enum MessageAction { reply, edit, delete }
+enum MessageAction { edit, delete }
 
 // All dialogs of the app are here. Use them like:
 //   final yes = await AppDialogs.confirmExit(context);
 class AppDialogs {
   AppDialogs._();
+
+  // Reads the selected theme colors (dialogs have no "ref", so we
+  // get the Riverpod container from the context instead).
+  static AppThemePreset _preset(BuildContext context) {
+    return ProviderScope.containerOf(context).read(themeProvider).preset;
+  }
 
   // ---------- BASE DIALOG (every yes/no dialog uses this) ----------
 
@@ -23,30 +32,31 @@ class AppDialogs {
         bool isDestructive = false, // true = confirm button becomes red
       }) async {
     AppHaptics.light();
+    final p = _preset(context);
 
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.surface,
+        backgroundColor: p.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
           title,
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.bold,
-            color: AppColors.textDark,
+            color: p.textMain,
           ),
         ),
         content: Text(
           message,
-          style: TextStyle(fontSize: 14, color: AppColors.textGrey),
+          style: TextStyle(fontSize: 14, color: p.textGrey),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
             child: Text(
               cancelText,
-              style: TextStyle(color: AppColors.textGrey),
+              style: TextStyle(color: p.textGrey),
             ),
           ),
           TextButton(
@@ -54,7 +64,7 @@ class AppDialogs {
             child: Text(
               confirmText,
               style: TextStyle(
-                color: isDestructive ? AppColors.error : AppColors.primary,
+                color: isDestructive ? AppColors.error : p.primary,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -112,67 +122,42 @@ class AppDialogs {
     );
   }
 
-  // ---------- MESSAGE OPTIONS (Reply / Edit / Delete) ----------
+  // ---------- MESSAGE OPTIONS (Edit / Delete) ----------
 
-  // Returns MessageAction, or null if cancelled.
-  // canEdit / canDelete are only true for your own messages.
+  // Returns MessageAction.edit, MessageAction.delete, or null if cancelled.
+  // canEdit = false hides the Edit button (voice and image messages can't be edited)
   static Future<MessageAction?> messageOptions(
-    BuildContext context, {
-    bool canReply = true,
-    bool canEdit = false,
-    bool canDelete = false,
-  }) {
+      BuildContext context, {
+        bool canEdit = true,
+      }) {
+    final p = _preset(context);
+
     return showDialog<MessageAction>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.surface,
+        backgroundColor: p.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
           'Message options',
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.bold,
-            color: AppColors.textDark,
+            color: p.textMain,
           ),
         ),
-        actionsAlignment: MainAxisAlignment.start,
         actions: [
-          if (canReply)
-            TextButton.icon(
-              onPressed: () =>
-                  Navigator.pop(dialogContext, MessageAction.reply),
-              icon: Icon(Icons.reply, size: 18, color: AppColors.primary),
-              label: Text(
-                'Reply',
-                style: TextStyle(color: AppColors.primary),
-              ),
-            ),
           if (canEdit)
-            TextButton.icon(
-              onPressed: () =>
-                  Navigator.pop(dialogContext, MessageAction.edit),
-              icon: Icon(Icons.edit_outlined, size: 18, color: AppColors.primary),
-              label: Text(
-                'Edit',
-                style: TextStyle(color: AppColors.primary),
-              ),
-            ),
-          if (canDelete)
-            TextButton.icon(
-              onPressed: () =>
-                  Navigator.pop(dialogContext, MessageAction.delete),
-              icon: Icon(Icons.delete_outline, size: 18, color: AppColors.error),
-              label: Text(
-                'Delete',
-                style: TextStyle(color: AppColors.error),
-              ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, MessageAction.edit),
+              child: Text('Edit', style: TextStyle(color: p.primary)),
             ),
           TextButton(
+            onPressed: () => Navigator.pop(dialogContext, MessageAction.delete),
+            child: const Text('Delete', style: TextStyle(color: AppColors.error)),
+          ),
+          TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: Text(
-              'Cancel',
-              style: TextStyle(color: AppColors.textGrey),
-            ),
+            child: Text('Cancel', style: TextStyle(color: p.textGrey)),
           ),
         ],
       ),
@@ -233,33 +218,36 @@ class _EditTextDialogState extends State<_EditTextDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppDialogs._preset(context);
+
     return AlertDialog(
-      backgroundColor: AppColors.surface,
+      backgroundColor: p.surface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Text(
         widget.title,
         style: TextStyle(
           fontSize: 18,
           fontWeight: FontWeight.bold,
-          color: AppColors.textDark,
+          color: p.textMain,
         ),
       ),
       content: TextField(
         controller: _controller,
         autofocus: true,
         maxLines: null,
+        style: TextStyle(color: p.textMain),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context), // returns null
-          child: Text('Cancel', style: TextStyle(color: AppColors.textGrey)),
+          child: Text('Cancel', style: TextStyle(color: p.textGrey)),
         ),
         TextButton(
           onPressed: () => Navigator.pop(context, _controller.text.trim()),
           child: Text(
             widget.saveText,
             style: TextStyle(
-              color: AppColors.primary,
+              color: p.primary,
               fontWeight: FontWeight.bold,
             ),
           ),

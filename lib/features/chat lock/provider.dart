@@ -1,34 +1,26 @@
+import 'package:chatme/features/chat%20lock/service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'service.dart';
-
-/// How long a chat stays open after a successful biometric unlock.
+// How long a chat stays open after a correct PIN, before it locks again
 const Duration kUnlockDuration = Duration(minutes: 10);
 
 class ChatLockState {
-  final ChatLockMode mode;
-  final Set<String> lockedChatIds;
-  final Map<String, DateTime> unlockedUntil;
-  final bool loaded;
+  final Set<String> lockedChatIds; // chats the user has locked
+  final Map<String, DateTime> unlockedUntil; // chatId -> when the unlock expires
 
   const ChatLockState({
-    this.mode = ChatLockMode.shared,
     this.lockedChatIds = const {},
     this.unlockedUntil = const {},
-    this.loaded = false,
   });
 
   ChatLockState copyWith({
-    ChatLockMode? mode,
     Set<String>? lockedChatIds,
     Map<String, DateTime>? unlockedUntil,
-    bool? loaded,
   }) {
     return ChatLockState(
-      mode: mode ?? this.mode,
       lockedChatIds: lockedChatIds ?? this.lockedChatIds,
       unlockedUntil: unlockedUntil ?? this.unlockedUntil,
-      loaded: loaded ?? this.loaded,
     );
   }
 }
@@ -36,80 +28,93 @@ class ChatLockState {
 class ChatLockNotifier extends Notifier<ChatLockState> {
   final _service = ChatLockService();
 
+  // Which user the current state belongs to
+  String? _userId;
+
   @override
   ChatLockState build() {
-    _load();
+    _userId = Supabase.instance.client.auth.currentUser?.id;
+
+    // When a different user logs in (or the user logs out), forget everything
+    // and load the new user's locks
+    final sub = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      final newId = data.session?.user.id;
+      if (newId == _userId) return; // same user (e.g. token refresh), do nothing
+      _userId = newId;
+      state = const ChatLockState();
+      _loadLockedIds();
+    });
+    ref.onDispose(sub.cancel);
+
+    _loadLockedIds();
     return const ChatLockState();
   }
 
-  Future<void> _load() async {
-    final mode = await _service.getMode();
+  Future<void> _loadLockedIds() async {
+    // Not logged in yet, so there is nothing to load
+    if (Supabase.instance.client.auth.currentUser == null) return;
     final ids = await _service.getLockedChatIds();
-    state = state.copyWith(
-      mode: mode,
-      lockedChatIds: ids,
-      loaded: true,
-    );
+    state = state.copyWith(lockedChatIds: ids);
   }
 
   bool isLocked(String chatId) => state.lockedChatIds.contains(chatId);
 
+  // True if the PIN was entered for this chat within the last 10 minutes
   bool isUnlockedNow(String chatId) {
     final expiry = state.unlockedUntil[chatId];
     return expiry != null && expiry.isAfter(DateTime.now());
   }
 
-  Future<bool> hasPinForLock({String? chatId}) async {
-    if (state.mode == ChatLockMode.shared) {
-      final pin = await _service.getSharedPin();
-      return pin != null && pin.isNotEmpty;
-    }
-    if (chatId == null) return false;
-    final pins = await _service.getPerChatPins();
-    final pin = pins[chatId];
-    return pin != null && pin.isNotEmpty;
+  // Sets the PIN for this chat and locks it
+  Future<void> lockChat(String chatId, String pin) async {
+    await _service.saveLock(chatId, pin);
+    final updated = Set<String>.from(state.lockedChatIds)..add(chatId);
+    state = state.copyWith(lockedChatIds: updated);
   }
 
-  /// Shared-mode PIN, or a specific chat's PIN in separate mode.
-  Future<void> setPin(String pin, {String? chatId}) async {
-    if (state.mode == ChatLockMode.shared || chatId == null) {
-      await _service.saveSharedPin(pin);
-      return;
+  Future<bool> verifyPin(String chatId, String pin) {
+    return _service.verifyPin(chatId, pin);
+  }
+  // Locks many chats with the same PIN/password (used by Manage Lock)
+  Future<void> lockManyChats(
+      List<String> chatIds, String secret, String type) async {
+    final updated = Set<String>.from(state.lockedChatIds);
+    for (final chatId in chatIds) {
+      await _service.saveLock(chatId, secret, type: type);
+      updated.add(chatId);
     }
-    final pins = await _service.getPerChatPins();
-    pins[chatId] = pin;
-    await _service.savePerChatPins(pins);
+    state = state.copyWith(lockedChatIds: updated);
   }
 
-  Future<bool> verifyPin(String pin, {String? chatId}) async {
-    if (state.mode == ChatLockMode.shared) {
-      final saved = await _service.getSharedPin();
-      return saved != null && saved == pin;
+  // Removes the lock from many chats at once
+  Future<void> removeManyLocks(List<String> chatIds) async {
+    final updatedLocked = Set<String>.from(state.lockedChatIds);
+    final updatedUnlocked = Map<String, DateTime>.from(state.unlockedUntil);
+    for (final chatId in chatIds) {
+      await _service.deleteLock(chatId);
+      updatedLocked.remove(chatId);
+      updatedUnlocked.remove(chatId);
     }
-    if (chatId == null) return false;
-    final pins = await _service.getPerChatPins();
-    return pins[chatId] == pin;
+    state = state.copyWith(
+      lockedChatIds: updatedLocked,
+      unlockedUntil: updatedUnlocked,
+    );
   }
 
+  // 'pin' or 'password'
+  Future<String> getLockType(String chatId) {
+    return _service.getLockType(chatId);
+  }
+  // Called after the user enters the correct PIN for a specific chat
   void markUnlocked(String chatId) {
     final updated = Map<String, DateTime>.from(state.unlockedUntil);
     updated[chatId] = DateTime.now().add(kUnlockDuration);
     state = state.copyWith(unlockedUntil: updated);
   }
 
-  void clearSessionUnlock(String chatId) {
-    final updated = Map<String, DateTime>.from(state.unlockedUntil)
-      ..remove(chatId);
-    state = state.copyWith(unlockedUntil: updated);
-  }
-
-  Future<void> lockChat(String chatId) async {
-    final updated = Set<String>.from(state.lockedChatIds)..add(chatId);
-    state = state.copyWith(lockedChatIds: updated);
-    await _service.saveLockedChatIds(updated);
-  }
-
+  // Removes the lock entirely. The caller must verify the PIN before calling this.
   Future<void> removeLock(String chatId) async {
+    await _service.deleteLock(chatId);
     final updatedLocked = Set<String>.from(state.lockedChatIds)..remove(chatId);
     final updatedUnlocked = Map<String, DateTime>.from(state.unlockedUntil)
       ..remove(chatId);
@@ -117,53 +122,8 @@ class ChatLockNotifier extends Notifier<ChatLockState> {
       lockedChatIds: updatedLocked,
       unlockedUntil: updatedUnlocked,
     );
-    await _service.saveLockedChatIds(updatedLocked);
-
-    if (state.mode == ChatLockMode.separate) {
-      final pins = await _service.getPerChatPins()..remove(chatId);
-      await _service.savePerChatPins(pins);
-    }
-  }
-
-  Future<void> setMode(ChatLockMode mode) async {
-    if (mode == state.mode) return;
-
-    if (mode == ChatLockMode.separate) {
-      // Seed each locked chat with the current shared PIN (if any).
-      final shared = await _service.getSharedPin();
-      if (shared != null && shared.isNotEmpty) {
-        final pins = await _service.getPerChatPins();
-        for (final id in state.lockedChatIds) {
-          pins.putIfAbsent(id, () => shared);
-        }
-        await _service.savePerChatPins(pins);
-      }
-    } else {
-      // Prefer an existing shared PIN; else pick any per-chat PIN.
-      var shared = await _service.getSharedPin();
-      if (shared == null || shared.isEmpty) {
-        final pins = await _service.getPerChatPins();
-        if (pins.isNotEmpty) {
-          shared = pins.values.first;
-          await _service.saveSharedPin(shared);
-        }
-      }
-    }
-
-    await _service.saveMode(mode);
-    state = state.copyWith(mode: mode);
-  }
-
-  Future<void> changeSharedPin(String newPin) async {
-    await _service.saveSharedPin(newPin);
-  }
-
-  Future<void> changeChatPin(String chatId, String newPin) async {
-    final pins = await _service.getPerChatPins();
-    pins[chatId] = newPin;
-    await _service.savePerChatPins(pins);
   }
 }
 
 final chatLockProvider =
-    NotifierProvider<ChatLockNotifier, ChatLockState>(ChatLockNotifier.new);
+NotifierProvider<ChatLockNotifier, ChatLockState>(ChatLockNotifier.new);

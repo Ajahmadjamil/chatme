@@ -3,6 +3,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../../firebase_options.dart';
+import '../services/call_notification_service.dart';
 import 'notification_actions.dart';
 import 'notification_display.dart';
 
@@ -15,7 +16,16 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
   }
-
+  // ---- Calls: show / remove the system incoming call screen ----
+  final type = message.data['type'];
+  if (type == 'call') {
+    await CallNotificationService.instance.showIncomingFromPush(message.data);
+    return;
+  }
+  if (type == 'call_cancel') {
+    await CallNotificationService.instance.endById(message.data['call_id']);
+    return;
+  }
   // Data-only FCM: we always build the local notification so Reply /
   // Mark as read actions are available. Skip if FCM already showed one
   // (legacy pushes that still include a notification payload).

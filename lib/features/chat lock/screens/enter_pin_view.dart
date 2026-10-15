@@ -5,20 +5,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/shared/widgets/custom_button.dart';
 import '../../../core/shared/widgets/custom_text_field.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/theme_provider.dart';
 import '../../auth/widget/auth_header.dart';
 import '../provider.dart';
 
-/// Verify a chat-lock PIN. Pops `true` when correct.
+// Asks for the PIN of ONE chat. Pops with `true` if the PIN was correct.
 class EnterPinScreen extends ConsumerStatefulWidget {
+  final String chatId;
   final String title;
   final String subtitle;
-  final String? chatId;
 
   const EnterPinScreen({
     super.key,
+    required this.chatId,
     this.title = 'Enter PIN',
-    this.subtitle = 'Enter your 4-digit PIN to continue.',
-    this.chatId,
+    this.subtitle = 'Enter the 4-digit PIN for this chat.',
   });
 
   @override
@@ -29,6 +30,25 @@ class _EnterPinScreenState extends ConsumerState<EnterPinScreen> {
   final _pinController = TextEditingController();
   String? _error;
   bool _isChecking = false;
+  bool _isPassword = false; // true when this chat is locked with a password
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLockType();
+  }
+
+  // Finds out if this chat uses a PIN or a password, so we show the right keyboard
+  Future<void> _loadLockType() async {
+    try {
+      final type =
+      await ref.read(chatLockProvider.notifier).getLockType(widget.chatId);
+      if (!mounted) return;
+      setState(() => _isPassword = type == 'password');
+    } catch (e) {
+      // If this fails we simply keep the normal PIN screen
+    }
+  }
 
   @override
   void dispose() {
@@ -38,7 +58,12 @@ class _EnterPinScreenState extends ConsumerState<EnterPinScreen> {
 
   Future<void> _verify() async {
     final pin = _pinController.text.trim();
-    if (pin.length != 4) {
+    if (_isPassword) {
+      if (pin.isEmpty) {
+        setState(() => _error = 'Enter your password');
+        return;
+      }
+    } else if (pin.length != 4) {
       setState(() => _error = 'Enter your 4-digit PIN');
       return;
     }
@@ -48,10 +73,19 @@ class _EnterPinScreenState extends ConsumerState<EnterPinScreen> {
       _isChecking = true;
     });
 
-    final correct = await ref.read(chatLockProvider.notifier).verifyPin(
-          pin,
-          chatId: widget.chatId,
-        );
+    bool correct = false;
+    try {
+      correct = await ref
+          .read(chatLockProvider.notifier)
+          .verifyPin(widget.chatId, pin);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isChecking = false;
+        _error = 'Could not check PIN, check your internet';
+      });
+      return;
+    }
 
     if (!mounted) return;
     setState(() => _isChecking = false);
@@ -66,8 +100,10 @@ class _EnterPinScreenState extends ConsumerState<EnterPinScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final p = ref.watch(themeProvider).preset;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: p.background,
       body: Center(
         child: SafeArea(
           child: SingleChildScrollView(
@@ -77,16 +113,21 @@ class _EnterPinScreenState extends ConsumerState<EnterPinScreen> {
                 AuthHeader(
                   title: widget.title,
                   showBackButton: true,
-                  subtitle: widget.subtitle,
+                  subtitle: _isPassword
+                      ? widget.subtitle.replaceAll('PIN', 'password')
+                      : widget.subtitle,
                 ),
                 CustomTextField(
                   controller: _pinController,
-                  hintText: 'Enter PIN',
+                  hintText: _isPassword ? 'Enter password' : 'Enter PIN',
                   prefixIcon: Icons.lock_outline,
                   obscureText: true,
-                  keyboardType: TextInputType.number,
+                  keyboardType:
+                  _isPassword ? TextInputType.text : TextInputType.number,
                   textInputAction: TextInputAction.done,
-                  inputFormatters: [
+                  inputFormatters: _isPassword
+                      ? <TextInputFormatter>[]
+                      : <TextInputFormatter>[
                     FilteringTextInputFormatter.digitsOnly,
                     LengthLimitingTextInputFormatter(4),
                   ],
@@ -94,17 +135,12 @@ class _EnterPinScreenState extends ConsumerState<EnterPinScreen> {
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 10),
-                  Text(
-                    _error!,
-                    style: TextStyle(
-                      color: AppColors.error,
-                      fontSize: 12.5,
-                    ),
-                  ),
+                  Text(_error!,
+                      style: const TextStyle(color: AppColors.error, fontSize: 12.5)),
                 ],
                 const SizedBox(height: 32),
                 CustomButton(
-                  text: 'Continue',
+                  text: 'Unlock',
                   isLoading: _isChecking,
                   onPressed: _verify,
                 ),

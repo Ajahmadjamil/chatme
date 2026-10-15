@@ -1,8 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
-
 class ImagePreviewScreen extends StatefulWidget {
   final File imageFile;
 
@@ -71,7 +69,7 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
                   const SizedBox(width: 8),
                   CircleAvatar(
                     radius: 22,
-                    backgroundColor: AppColors.accent,
+                    backgroundColor: const Color(0xFF25D366),
                     child: IconButton(
                       icon: const Icon(Icons.send, color: Colors.white, size: 20),
                       onPressed: () {
