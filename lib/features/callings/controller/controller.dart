@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:uuid/uuid.dart';
 import '../../../core/permission/permission_handler.dart';
+import '../../../core/services/call_device_service.dart';
 import '../../../core/services/call_notification_service.dart';
 import '../../../core/services/call_push_sender.dart';
 import '../../../core/services/call_signaling.dart';
@@ -23,6 +24,7 @@ class CallUiState {
     this.isSpeakerOn = false,
     this.hasLocalVideo = false,
     this.hasRemoteVideo = false,
+    this.remoteCameraOn = true,
   });
 
   final CallState status;
@@ -35,6 +37,7 @@ class CallUiState {
   final bool isSpeakerOn;
   final bool hasLocalVideo;
   final bool hasRemoteVideo;
+  final bool remoteCameraOn; // false: the other person turned their camera off
 
   bool get isInCall =>
       status != CallState.idle &&
@@ -52,6 +55,7 @@ class CallUiState {
     bool? isSpeakerOn,
     bool? hasLocalVideo,
     bool? hasRemoteVideo,
+    bool? remoteCameraOn,
   }) =>
       CallUiState(
         status: status ?? this.status,
@@ -64,6 +68,7 @@ class CallUiState {
         isSpeakerOn: isSpeakerOn ?? this.isSpeakerOn,
         hasLocalVideo: hasLocalVideo ?? this.hasLocalVideo,
         hasRemoteVideo: hasRemoteVideo ?? this.hasRemoteVideo,
+        remoteCameraOn: remoteCameraOn ?? this.remoteCameraOn,
       );
 }
 
@@ -84,6 +89,7 @@ class CallController extends Notifier<CallUiState> {
   bool _renderersReady = false;
   bool _initializing = false;
   bool _wasConnected = false;
+  bool _accepting = false;
   Timer? _durationTimer;
   Timer? _idleTimer;
 
@@ -109,6 +115,7 @@ class CallController extends Notifier<CallUiState> {
     required String userName,
     required CallSignaling signaling,
     required CallPushSender pushSender,
+    List<Map<String, dynamic>> iceServers = CallingService.defaultIceServers,
   }) async {
     if (_initializing) return;
     if (_service != null && _userId == userId) return;
@@ -122,12 +129,15 @@ class CallController extends Notifier<CallUiState> {
       _push = pushSender;
 
       if (!_renderersReady) {
+        // Audio/video engine options must be set before the first renderer
+        await CallingService.initMediaEngine();
         await localRenderer.initialize();
         await remoteRenderer.initialize();
         _renderersReady = true;
       }
 
-      final service = CallingService(signaling: signaling);
+      final service =
+          CallingService(signaling: signaling, iceServers: iceServers);
       service.onStateChanged = _onServiceState;
       service.onIncomingCall = _onIncomingCall;
       service.onLocalStream = (stream) {
@@ -142,6 +152,9 @@ class CallController extends Notifier<CallUiState> {
           hasRemoteVideo:
           stream != null && stream.getVideoTracks().isNotEmpty,
         );
+      };
+      service.onRemoteCameraChanged = (on) {
+        state = state.copyWith(remoteCameraOn: on);
       };
       _service = service;
 
@@ -169,6 +182,7 @@ class CallController extends Notifier<CallUiState> {
     _service = null;
     _userId = '';
     await service?.dispose();
+    _stopDeviceSupport();
     state = const CallUiState();
   }
 
@@ -184,10 +198,15 @@ class CallController extends Notifier<CallUiState> {
     String? receiverName,
   }) async {
     if (_service == null) return 'Calling is not ready yet';
-    if (state.isInCall) return 'You are already in a call';
+    if (state.isInCall || _service!.hasActiveCall) {
+      return 'You are already in a call';
+    }
 
-    final allowed = await CallPermissionHandler.request(type);
-    if (!allowed) return 'Camera/microphone permission is required';
+    if (!await _askPermissions(type)) {
+      return type == CallType.video
+          ? 'Camera and microphone permission is needed for video calls'
+          : 'Microphone permission is needed for calls';
+    }
 
     final call = CallModel(
       callId: const Uuid().v4(),
@@ -201,26 +220,56 @@ class CallController extends Notifier<CallUiState> {
     );
 
     _wasConnected = false;
-    state = CallUiState(call: call, isSpeakerOn: call.isVideo);
+    _idleTimer?.cancel(); // a previous "Call ended" screen must not reset this
+    // Straight to "initiating", so the call screen opens right away
+    state = CallUiState(
+      call: call,
+      status: CallState.initiating,
+      isSpeakerOn: call.isVideo,
+    );
+    _startDeviceSupport(call);
 
     await _service!.startCall(call);
-    // Also wake the other phone if its app is closed.
-    unawaited(_push?.sendInvite(call));
+
+    // Also wake the other phone if its app is closed — but only if the call
+    // really started (a failed start must not ring the other phone)
+    if (_service?.hasActiveCall == true && state.call?.callId == call.callId) {
+      unawaited(_push?.sendInvite(call));
+    }
     return null;
   }
 
   Future<void> acceptCall() async {
     final call = state.call;
-    if (call == null) return;
+    // One accept at a time: the in-app button and the system call screen
+    // can both deliver one for the same call
+    if (call == null || _accepting || state.status != CallState.ringing) return;
+    _accepting = true;
 
-    final allowed = await CallPermissionHandler.request(call.type);
-    if (!allowed) {
-      await rejectCall();
-      return;
+    try {
+      if (!await _askPermissions(call.type)) {
+        await rejectCall();
+        return;
+      }
+
+      // Our own call service keeps the mic alive; start it before the
+      // system call screen (and its service) is dismissed
+      _startDeviceSupport(call);
+      await CallNotificationService.instance.endAll();
+      await _service?.acceptCall();
+    } finally {
+      _accepting = false;
     }
+  }
 
-    await CallNotificationService.instance.endAll();
-    await _service?.acceptCall();
+  // Never throws (e.g. "a permission request is already running")
+  Future<bool> _askPermissions(CallType type) async {
+    try {
+      return await CallPermissionHandler.request(type);
+    } catch (e) {
+      debugPrint('[calling] permission request failed: $e');
+      return false;
+    }
   }
 
   Future<void> rejectCall() async {
@@ -253,6 +302,40 @@ class CallController extends Notifier<CallUiState> {
     final on = !state.isSpeakerOn;
     await _service?.setSpeaker(on);
     state = state.copyWith(isSpeakerOn: on);
+    _updateProximity();
+  }
+
+  // ====================================================================
+  // PHONE-LEVEL SUPPORT FOR A CALL
+  // ====================================================================
+  // - foreground service: mic/camera keep working when the screen locks or
+  //   the app goes to the background (Android silences them otherwise)
+  // - video: keep the screen on
+  // - voice on the earpiece: screen off at the ear, so the cheek can't
+  //   press mute or hang up
+  void _startDeviceSupport(CallModel call) {
+    unawaited(CallDeviceService.startCallService(
+      title: call.peerName ?? 'Ongoing call',
+      text: call.isVideo ? 'Video call in progress' : 'Voice call in progress',
+      video: call.isVideo,
+    ));
+    unawaited(CallDeviceService.keepScreenOn(call.isVideo));
+    _updateProximity();
+  }
+
+  void _stopDeviceSupport() {
+    unawaited(CallDeviceService.stopCallService());
+    unawaited(CallDeviceService.keepScreenOn(false));
+    unawaited(CallDeviceService.proximityScreenOff(false));
+  }
+
+  void _updateProximity() {
+    final call = state.call;
+    final on = call != null &&
+        !call.isVideo &&
+        !state.isSpeakerOn &&
+        state.isInCall;
+    unawaited(CallDeviceService.proximityScreenOff(on));
   }
 
   // ====================================================================
@@ -268,7 +351,9 @@ class CallController extends Notifier<CallUiState> {
 
   Future<void> _onCallKitDecline(CallModel call) async {
     if (state.call?.callId == call.callId) {
-      await rejectCall();
+      // Only an unanswered call can be declined; once answered here, the
+      // system screen closing is not a decline
+      if (state.status == CallState.ringing) await rejectCall();
     } else {
       _service?.declineWithoutUi(call);
     }
@@ -279,7 +364,12 @@ class CallController extends Notifier<CallUiState> {
   // ====================================================================
   void _onIncomingCall(CallModel call) {
     _wasConnected = false;
-    state = CallUiState(call: call, isSpeakerOn: call.isVideo);
+    _idleTimer?.cancel(); // a previous "Call ended" screen must not reset this
+    state = CallUiState(
+      call: call,
+      status: CallState.ringing,
+      isSpeakerOn: call.isVideo,
+    );
 
     final inForeground =
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
@@ -309,6 +399,7 @@ class CallController extends Notifier<CallUiState> {
       case CallState.busy:
         _durationTimer?.cancel();
         _durationTimer = null;
+        _stopDeviceSupport();
         CallNotificationService.instance.endAll();
 
         // Caller gave up (or nobody answered): dismiss the other phone's

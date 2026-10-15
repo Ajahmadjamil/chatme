@@ -36,6 +36,7 @@ class SupabaseCallSignaling implements CallSignaling {
 
     debugPrint('[calling] connect: listening on calls:$myUserId');
     final channel = _client.channel('calls:$myUserId');
+    final subscribed = Completer<void>();
     channel
         .onBroadcast(
       event: _broadcastEvent,
@@ -46,9 +47,19 @@ class SupabaseCallSignaling implements CallSignaling {
     )
         .subscribe((status, [error]) {
       debugPrint('[calling] inbox status: $status $error');
+      if (status == RealtimeSubscribeStatus.subscribed && !subscribed.isCompleted) {
+        subscribed.complete();
+      }
     });
 
     _inbox = channel;
+
+    // Wait until the inbox really listens, so an invite / offer sent right
+    // after this (e.g. a call accepted from the lock screen) isn't missed.
+    // On a slow network, carry on anyway: Realtime keeps retrying.
+    await subscribed.future
+        .timeout(const Duration(seconds: 8))
+        .catchError((_) => debugPrint('[calling] inbox not confirmed yet'));
   }
 
   Map<String, dynamic> _unwrap(Map<String, dynamic> raw) {

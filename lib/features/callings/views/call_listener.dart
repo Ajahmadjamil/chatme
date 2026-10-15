@@ -22,7 +22,9 @@ class CallListener extends ConsumerStatefulWidget {
 }
 
 class _CallListenerState extends ConsumerState<CallListener> {
-  bool _screenOpen = false;
+  // The call screen we pushed. Kept so we close exactly that screen, not
+  // whatever happens to be on top (a dialog, a sheet, another page).
+  Route<void>? _route;
 
   @override
   Widget build(BuildContext context) {
@@ -32,16 +34,21 @@ class _CallListenerState extends ConsumerState<CallListener> {
         final navigator = widget.navigatorKey.currentState;
         if (navigator == null) return;
 
-        if (next != CallState.idle && !_screenOpen) {
-          _screenOpen = true;
-          navigator
-              .push(MaterialPageRoute(
+        final route = _route;
+        final screenOpen = route != null && route.isActive;
+
+        if (next == CallState.idle) {
+          if (screenOpen) navigator.removeRoute(route);
+          _route = null;
+        } else if (!screenOpen) {
+          final newRoute = MaterialPageRoute<void>(
             fullscreenDialog: true,
             builder: (_) => const CallScreen(),
-          ))
-              .whenComplete(() => _screenOpen = false);
-        } else if (next == CallState.idle && _screenOpen) {
-          navigator.pop();
+          );
+          _route = newRoute;
+          navigator.push(newRoute).whenComplete(() {
+            if (_route == newRoute) _route = null;
+          });
         }
       },
     );
@@ -63,8 +70,13 @@ class CallScreen extends ConsumerWidget {
         call.direction == CallDirection.incoming &&
         state.status == CallState.ringing;
 
-    return isRingingIncoming
-        ? const IncomingCallView()
-        : const ActiveCallView();
+    // While a call is going on, Back must not close this screen — the call
+    // would keep running with no way to hang up. Use the red button instead.
+    return PopScope(
+      canPop: !state.isInCall,
+      child: isRingingIncoming
+          ? const IncomingCallView()
+          : const ActiveCallView(),
+    );
   }
 }

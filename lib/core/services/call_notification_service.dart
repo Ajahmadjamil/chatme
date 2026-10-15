@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_callkit_incoming/entities/entities.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../features/callings/model/calling_model.dart';
 
 /// Shows the system "incoming call" screen (lock screen / notification) and
@@ -24,6 +25,11 @@ class CallNotificationService {
   // Presses that arrived before anyone was listening.
   final List<({bool accepted, CallModel call})> _buffer = [];
 
+  // Calls whose system screen WE closed. The plugin reports closing an
+  // unanswered one as a "decline", which must not reject a call that was
+  // just answered inside the app.
+  final Set<String> _closedByApp = {};
+
   // ---------------------------------------------------------------------
   // Setup
   // ---------------------------------------------------------------------
@@ -31,16 +37,32 @@ class CallNotificationService {
     if (_started) return;
     _started = true;
 
-    try {
-      await FlutterCallkitIncoming.requestFullIntentPermission();
-    } catch (e) {
-      debugPrint('[callkit] full screen permission: $e');
-    }
+    await _askFullScreenPermissionOnce();
 
     _subscription = FlutterCallkitIncoming.onEvent.listen(_onEvent);
 
     // App was closed and the user already pressed Accept: pick it up.
     await _checkAcceptedCalls();
+  }
+
+  // Android 14+ needs "full-screen notifications" allowed for the incoming
+  // call screen on a locked phone. The plugin opens the Settings page every
+  // time it is asked, so only ask once per install, and only if not allowed.
+  static const _askedFullScreenKey = 'callkit_full_screen_asked';
+
+  Future<void> _askFullScreenPermissionOnce() async {
+    try {
+      final allowed = await FlutterCallkitIncoming.canUseFullScreenIntent();
+      if (allowed == true) return;
+
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_askedFullScreenKey) == true) return;
+      await prefs.setBool(_askedFullScreenKey, true);
+
+      await FlutterCallkitIncoming.requestFullIntentPermission();
+    } catch (e) {
+      debugPrint('[callkit] full screen permission: $e');
+    }
   }
 
   /// The controller says "tell me when the user presses a button".
@@ -99,8 +121,18 @@ class CallNotificationService {
     if (key.contains('actioncallaccept')) {
       _dispatch(true, call);
     } else if (key.contains('actioncalldecline')) {
+      if (_closedByApp.remove(call.callId)) return; // not the user's press
       _dispatch(false, call);
     }
+  }
+
+  void _markClosedByApp(String callId) {
+    _closedByApp.add(callId);
+    // The plugin's event comes right away; don't keep the id forever
+    Future<void>.delayed(
+      const Duration(seconds: 10),
+      () => _closedByApp.remove(callId),
+    );
   }
 
   CallModel? _callFromBody(dynamic body) {
@@ -157,6 +189,7 @@ class CallNotificationService {
 
   Future<void> endById(String? callId) async {
     if (callId == null || callId.isEmpty) return;
+    _markClosedByApp(callId);
     try {
       await FlutterCallkitIncoming.endCall(callId);
     } catch (e) {
@@ -166,6 +199,13 @@ class CallNotificationService {
 
   Future<void> endAll() async {
     try {
+      final active = await FlutterCallkitIncoming.activeCalls();
+      if (active is List) {
+        for (final item in active) {
+          final id = item is Map ? item['id']?.toString() : null;
+          if (id != null && id.isNotEmpty) _markClosedByApp(id);
+        }
+      }
       await FlutterCallkitIncoming.endAllCalls();
     } catch (e) {
       debugPrint('[callkit] endAllCalls: $e');

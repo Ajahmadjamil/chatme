@@ -20,18 +20,31 @@ class ActiveCallView extends ConsumerWidget {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // 1) Background: other person's video, or an avatar.
-          if (isVideo && state.hasRemoteVideo)
+          // 1) Background: other person's video, or an avatar (also when
+          //    they turned their camera off, instead of a frozen frame).
+          if (isVideo && state.hasRemoteVideo && state.remoteCameraOn)
             RTCVideoView(
               controller.remoteRenderer,
               objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
             )
           else
-            const Center(
-              child: CircleAvatar(
-                radius: 64,
-                backgroundColor: Colors.white12,
-                child: Icon(Icons.person, size: 72, color: Colors.white70),
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircleAvatar(
+                    radius: 64,
+                    backgroundColor: Colors.white12,
+                    child: Icon(Icons.person, size: 72, color: Colors.white70),
+                  ),
+                  if (isVideo && !state.remoteCameraOn) ...[
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Camera off',
+                      style: TextStyle(color: Colors.white60, fontSize: 14),
+                    ),
+                  ],
+                ],
               ),
             ),
 
